@@ -30,6 +30,20 @@
           <small>{{ graphStore.isLoaded ? shortCommit : 'Local source' }}</small>
         </span>
       </div>
+      <a
+        class="creator-credit"
+        href="https://www.dr-abhishek.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Created by Dr. Abhishek"
+      >
+        <span class="credit-mark" aria-hidden="true">A</span>
+        <span v-if="!uiStore.sidebarCollapsed" class="credit-copy">
+          <small>Created by</small>
+          <strong>Dr. Abhishek</strong>
+        </span>
+        <svg v-if="!uiStore.sidebarCollapsed" viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5h7v7M15 5 7 13"/><path d="M13 11v4H5V7h4"/></svg>
+      </a>
     </div>
   </aside>
 </template>
@@ -168,10 +182,12 @@ const shortCommit = computed(() => {
 
 .router-link-active .nav-glyph { color: var(--accent-emerald); }
 
-.sidebar-footer { padding: 12px; border-top: 1px solid var(--border-subtle); }
+.sidebar-footer { padding: 10px 12px 12px; border-top: 1px solid var(--border-subtle); }
 .source-status { display: flex; min-height: 42px; align-items: center; gap: 10px; padding: 6px 8px; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; background: var(--text-muted); border-radius: 50%; }
 .status-dot.ready { background: var(--accent-emerald); box-shadow: 0 0 0 4px var(--accent-soft); }
 .status-copy { display: flex; min-width: 0; flex-direction: column; font-size: 0.75rem; }
 .status-copy small { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.64rem; }
+.creator-credit { display: flex; min-height: 39px; align-items: center; gap: 9px; padding: 5px 8px; color: var(--text-muted); border: 1px solid transparent; border-radius: 6px; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; }.creator-credit:hover { background: var(--bg-surface-hover); border-color: var(--border-subtle); color: var(--text-primary); }.credit-mark { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--accent-emerald); font-family: var(--font-mono); font-size: .65rem; font-weight: 700; }.credit-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; line-height: 1.2; }.credit-copy small { color: var(--text-muted); font-size: .56rem; letter-spacing: .07em; text-transform: uppercase; }.credit-copy strong { margin-top: 2px; color: var(--text-secondary); font-size: .7rem; font-weight: 570; }.creator-credit svg { width: 13px; height: 13px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.3; }
+.collapsed .creator-credit { justify-content: center; padding-inline: 0; }
 </style>
