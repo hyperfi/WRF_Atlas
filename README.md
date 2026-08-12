@@ -56,9 +56,11 @@ The repository contains source-path-free official snapshots under `public/data/s
 To publish:
 
 1. Create one public GitHub repository for `WRF_Atlas`; a second WRF repository is not required.
-2. Push this Atlas repository to its `main` branch.
-3. In GitHub, open **Settings → Pages** and choose **GitHub Actions** as the source.
-4. Run or wait for `.github/workflows/deploy-pages.yml`.
+2. Before running the deployment workflow, open **Settings → Pages** in GitHub.
+3. Under **Build and deployment**, choose **GitHub Actions** as the source. This one-time step creates the repository's Pages site; without it, `configure-pages` returns a `Get Pages site ... Not Found` error.
+4. Push this Atlas repository to its `main` branch, then run or wait for `.github/workflows/deploy-pages.yml`.
+
+The workflow uses the Node 24 generations of the official checkout, setup-node, configure-pages, upload-pages-artifact, and deploy-pages actions. Do not enable the deprecated Node 20 compatibility environment variable.
 
 The workflow tests and builds the already-indexed static data, then deploys `dist`. It intentionally does not clone or re-index WRF in CI, which makes a public build deterministic and keeps the published source identity explicit.
 
