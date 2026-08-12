@@ -1,0 +1,2 @@
+# WRF Code Atlas Indexer dependencies
+# Standard library is used mostly.
