@@ -44,7 +44,7 @@
     <!-- Main View: Source Code Viewer -->
     <div class="source-main">
       <div class="source-context">
-        <div><span>{{ graphStore.metadata?.source_mode === 'local' ? 'Live checkout' : 'Pinned upstream source' }}</span><strong>{{ graphStore.metadata?.source_label }}</strong></div>
+        <div><span>{{ sourceContextTitle }}</span><strong>{{ sourceContextDetail }}</strong></div>
         <a v-if="githubSourceUrl" :href="githubSourceUrl" target="_blank" rel="noreferrer">Open exact commit on GitHub ↗</a>
       </div>
       <SourceViewer 
@@ -62,11 +62,13 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
+import { useLocalSourceStore } from '@/stores/localSourceStore'
 import SourceViewer from '@/components/source/SourceViewer.vue'
 
 const route = useRoute()
 const router = useRouter()
 const graphStore = useGraphStore()
+const localSource = useLocalSourceStore()
 
 const fileQuery = ref('')
 const currentFilePath = ref<string>('phys/module_surface_driver.F')
@@ -97,6 +99,12 @@ const githubSourceUrl = computed(() => {
   const line = targetLine.value ? `#L${targetLine.value}` : ''
   return `${repository.replace(/\/$/, '')}/blob/${commit}/${normalizedSourcePath.value}${line}`
 })
+const sourceContextTitle = computed(() => localSource.connected
+  ? 'Direct local folder'
+  : graphStore.metadata?.source_mode === 'local' ? 'Live checkout' : 'Pinned upstream source')
+const sourceContextDetail = computed(() => localSource.connected
+  ? `${localSource.folderName} · graph: ${graphStore.metadata?.source_label || 'selected snapshot'}`
+  : graphStore.metadata?.source_label || 'Indexed WRF source')
 
 const getBasename = (path: string) => {
   if (!path) return ''
@@ -117,6 +125,10 @@ const fetchSourceFile = async (filePath: string) => {
   currentSourceCode.value = ''
   try {
     const metadata = graphStore.metadata
+    if (localSource.connected) {
+      currentSourceCode.value = await localSource.readTextFile(filePath)
+      return
+    }
     const useLocalSource = import.meta.env.DEV && metadata?.source_mode === 'local'
     const normalizedPath = filePath.replaceAll('\\', '/')
     const sourceUrl = useLocalSource
@@ -155,6 +167,7 @@ watch(() => route.query, (query) => {
 }, { immediate: true })
 
 watch(() => graphStore.activeSnapshotId, () => fetchSourceFile(currentFilePath.value))
+watch(() => localSource.connected, () => fetchSourceFile(currentFilePath.value))
 
 onMounted(async () => {
   await graphStore.loadGraph()

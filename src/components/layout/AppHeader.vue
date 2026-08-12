@@ -20,6 +20,22 @@
     </div>
 
     <div class="header-right">
+      <div class="local-source-control" :class="{ connected: localSource.connected }">
+        <button
+          type="button"
+          :title="localSource.connected
+            ? `Reading source directly from ${localSource.folderName}; click to disconnect`
+            : localSource.supported
+              ? 'Choose a local WRF source folder for faster browsing'
+              : 'Direct folder access requires Chrome or Edge on localhost or HTTPS'"
+          @click="toggleLocalSource"
+        >
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2.5 5.5h5l1.5 2h8.5v7.5h-15z"/><path d="M2.5 7.5h15"/></svg>
+          <span>{{ localSource.connected ? localSource.folderName : 'Local folder' }}</span>
+          <i v-if="localSource.connected"></i>
+        </button>
+        <p v-if="localSource.error" role="status">{{ localSource.error }}</p>
+      </div>
       <label class="snapshot-picker" title="Indexed WRF source snapshot">
         <span>Source</span>
         <select :value="graphStore.activeSnapshotId || ''" :disabled="graphStore.loading" @change="changeSnapshot">
@@ -43,11 +59,20 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUiStore } from '@/stores/uiStore'
 import { useGraphStore } from '@/stores/graphStore'
+import { useLocalSourceStore } from '@/stores/localSourceStore'
 
 const uiStore = useUiStore()
 const graphStore = useGraphStore()
+const localSource = useLocalSourceStore()
 const route = useRoute()
 defineEmits(['open-search'])
+
+localSource.restore()
+
+const toggleLocalSource = async () => {
+  if (localSource.connected) await localSource.disconnect()
+  else await localSource.chooseFolder()
+}
 
 const changeSnapshot = async (event: Event) => {
   await graphStore.switchSnapshot((event.target as HTMLSelectElement).value)
@@ -128,6 +153,7 @@ const currentSection = computed(() => {
 .search-trigger span { flex: 1; }
 kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.62rem; }
 .snapshot-picker { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: .6rem; text-transform: uppercase; letter-spacing: .06em; }.snapshot-picker select { max-width: 170px; height: 30px; padding: 0 24px 0 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 5px; color: var(--text-secondary); font-size: .66rem; text-transform: none; letter-spacing: 0; }
+.local-source-control { position: relative; }.local-source-control button { display: flex; max-width: 150px; height: 30px; align-items: center; gap: 6px; padding: 0 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 5px; color: var(--text-muted); cursor: pointer; font-size: .66rem; }.local-source-control button:hover { border-color: var(--border-strong); color: var(--text-secondary); }.local-source-control svg { width: 14px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.3; }.local-source-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.local-source-control i { width: 6px; height: 6px; flex: 0 0 auto; background: var(--accent-emerald); border-radius: 50%; box-shadow: 0 0 8px color-mix(in srgb, var(--accent-emerald) 65%, transparent); }.local-source-control.connected button { border-color: color-mix(in srgb, var(--accent-emerald) 40%, var(--border-subtle)); color: var(--text-secondary); }.local-source-control p { position: absolute; top: 34px; right: 0; width: 280px; margin: 0; padding: 8px 10px; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow-lg); color: var(--text-secondary); font-size: .68rem; line-height: 1.45; text-transform: none; }
 
 .mode-toggle { display: flex; padding: 2px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 6px; }
 .mode-toggle button { padding: 4px 9px; background: transparent; border: 0; border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 0.7rem; }
@@ -141,5 +167,6 @@ kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--b
   .mode-toggle button { padding-inline: 7px; }
   .snapshot-picker span { display: none; }
   .snapshot-picker select { max-width: 125px; }
+  .local-source-control span { display: none; }
 }
 </style>

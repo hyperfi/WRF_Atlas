@@ -38,6 +38,8 @@ npm run index
 
 In development, the application detects that local snapshot and offers it in the source selector. Local source evidence is loaded through the Vite development server, so clicking source references opens files from that checkout.
 
+For the fastest source browsing, click **Local folder** in the Atlas header and choose the root of any WRF checkout. In Chromium-based browsers, the Atlas reads source files directly from that folder without copying or uploading them. The selected knowledge-graph snapshot remains visible separately, so choose the matching WRF version when exact graph-to-source correspondence matters. The browser may remember the folder handle, but it controls whether read permission persists between sessions.
+
 Useful commands:
 
 ```powershell
