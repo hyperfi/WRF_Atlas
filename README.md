@@ -1,118 +1,102 @@
 # WRF Code Atlas
 
-WRF Code Atlas is a local, source-grounded learning environment for the Weather Research and Forecasting model. It connects a user configuration choice to the Registry, runtime dispatch, executable Fortran calls, and model state in the WRF checkout being indexed.
+WRF Code Atlas is a source-grounded Vue application for learning how WRF turns configuration into executable code and physical model behavior. It connects namelist choices to Registry definitions, dispatch branches, routines, variables, and exact source evidence.
 
-The product goal is not to display the largest possible call graph. It is to make questions such as “what happens when I set this namelist value?” answerable with a small, navigable explanation whose claims link back to source.
+The public Atlas is static. It does **not** download or compile WRF in a visitor's browser and does not require a cloud backend. The Python indexer reads a WRF checkout ahead of time and produces versioned JSON snapshots that the Vue application can publish with GitHub Pages.
 
-## Source boundaries
+## Source layout
 
-- Atlas application: `E:\QWRF\WRF_Atlas`
-- Authoritative WRF source: `E:\QWRF\WRF`
+The application and WRF checkouts are intentionally separate:
 
-The WRF source tree is treated as read-only. The Atlas reads and indexes it; it does not modify it.
+| Folder | Purpose | Mutation policy |
+| --- | --- | --- |
+| `E:\QWRF\WRF_Atlas` | Atlas application, indexer, tests, and public snapshots | Atlas development |
+| `E:\QWRF\WRF` | Original v4.7.1 QWRF research checkout | Preserve as historical working source |
+| `E:\QWRF\WRF-v4.7.1-clean` | Clean official v4.7.1 baseline | Read-only |
+| `E:\QWRF\WRF-v4.8.0-clean` | Clean official v4.8.0 baseline | Read-only |
+| `E:\QWRF\WRF-v4.8.0-qwrf` | v4.8.0 worktree on branch `qwrf-v4.8.0` | QWRF migration only |
 
-## Prerequisites
+See `docs/migration/wrf-4.8-migration.md` for commit identities, backups, and validation gates.
 
-- Node.js and npm
-- Python 3.10 or newer
-- A local WRF checkout (the development default is `E:\QWRF\WRF`)
+## Local development
 
-## Commands
+Prerequisites are Node.js 22+, npm, Python 3.10+, and a local WRF checkout.
 
 ```powershell
 npm install
 npm run index
 npm test
 npm run dev
-npm run build
 ```
 
-`npm run atlas` regenerates the index and then starts the development server.
+`npm run index` reads `E:\QWRF\WRF` by default and writes an ignored local snapshot to `public/data/local/`. Set `WRF_SOURCE_ROOT` to use another checkout:
+
+```powershell
+$env:WRF_SOURCE_ROOT = 'D:\source\WRF'
+npm run index
+```
+
+In development, the application detects that local snapshot and offers it in the source selector. Local source evidence is loaded through the Vite development server, so clicking source references opens files from that checkout.
+
+Useful commands:
+
+```powershell
+npm run index:v4.7.1   # regenerate tracked official 4.7.1 snapshot
+npm run index:v4.8.0   # regenerate tracked official 4.8.0 snapshot
+npm run index:official # regenerate both official snapshots
+npm run atlas          # local indexing followed by Vite
+npm run build
+npm run preview
+```
+
+## Public and GitHub Pages behavior
+
+The repository contains source-path-free official snapshots under `public/data/snapshots/`. The public application defaults to WRF 4.8.0 and lets visitors switch to 4.7.1 or compare both versions. Source references are fetched from the exact indexed commit on the public [wrf-model/WRF repository](https://github.com/wrf-model/WRF), so a separate copy of WRF does not have to be committed to the Atlas repository.
+
+To publish:
+
+1. Create one public GitHub repository for `WRF_Atlas`; a second WRF repository is not required.
+2. Push this Atlas repository to its `main` branch.
+3. In GitHub, open **Settings → Pages** and choose **GitHub Actions** as the source.
+4. Run or wait for `.github/workflows/deploy-pages.yml`.
+
+The workflow tests and builds the already-indexed static data, then deploys `dist`. It intentionally does not clone or re-index WRF in CI, which makes a public build deterministic and keeps the published source identity explicit.
+
+## Data provenance and evidence
+
+Each snapshot records its WRF version, exact commit, tag, dirty status, source mode, generation time, and submodule commits. Public snapshots omit local absolute paths. Relationships carry evidence locations and one of three confidence levels:
+
+- `exact`: directly represented by an indexed definition, Registry entry, reference, or call;
+- `inferred`: joined from independently evidenced source facts;
+- `documentation`: explained by local authoritative documentation rather than executable source.
+
+The Atlas must display unresolved boundaries instead of inventing a path. A routine's presence in the source tree is not evidence that it executes.
 
 ## Architecture
 
 ```text
-Local WRF checkout
-  -> tolerant Python Fortran and Registry parsers
-  -> normalized knowledge graph with source evidence
-  -> Vue 3 application
-  -> focused configuration, execution, physics, variable, and source views
+WRF checkout
+  -> tolerant Python Fortran and Registry analysis
+  -> normalized, evidence-bearing version snapshot
+  -> Vue 3 + TypeScript + Cytoscape application
+  -> local Vite experience or static GitHub Pages site
 ```
 
-The generated graph is written to `public/data/wrf-knowledge-graph.json`. It includes source identity, indexing time, node and edge data, confidence, and source locations.
+The strongest current vertical slice is the Namelist Lab: a physics selector resolves through checkout-derived Registry mappings and symbolic driver dispatch to actual calls and source lines. The Atlas also includes the execution storyboard, Field Guide, source viewer, search, and structural version comparison.
 
-## Evidence model
+## Tests and limitations
 
-The UI distinguishes:
+`npm test` covers multiline Fortran normalization, scope detection, symbolic dispatch, Registry provenance, deterministic line mapping, and source-evidenced timestep construction. `npm run build` performs TypeScript checking and a production Vite build.
 
-- `exact`: a relationship directly represented by an indexed Registry entry, Fortran call, definition, or reference;
-- `inferred`: a join between separately evidenced facts, such as a Registry package constant matched to a symbolic `CASE` branch;
-- `documentation`: an explanation derived from local documentation rather than executable source.
+The scanner is tolerant rather than a complete Fortran compiler. Read/write direction, generated/preprocessed paths, full configuration validation, physics-suite overrides, and some scheduling conditions remain incomplete and must be labelled accordingly. The version comparison is structural: it reports indexed additions, removals, and mapping changes, not scientific equivalence or forecast impact.
 
-Presentation code must not create a missing relationship and label it `exact`. If the indexer cannot resolve a path, the UI should show the unresolved boundary.
+## Adding a version or subsystem
 
-## Current strongest vertical slice
+1. Create a clean, pinned WRF checkout outside this repository.
+2. Add an explicit indexing script and a manifest entry.
+3. Generate a snapshot with source mode `upstream`, exact repository URL, tag, and no local path.
+4. Add regression coverage for new parser behavior.
+5. Verify the UI source links and version comparison.
+6. Publish only generated knowledge data, never the WRF source tree or local run products.
 
-The Namelist Lab traces one physics decision at a time. For example, on this checkout:
-
-```text
-sf_surface_physics = 2
-  -> Registry package LSMSCHEME
-  -> surface_driver dispatch branch
-  -> exact calls indexed inside CASE (LSMSCHEME)
-  -> live source navigation
-```
-
-Option names, constants, branch calls, and evidence locations come from the generated index.
-
-The Execution view now derives the forward ARW path and timestep driver order from exact `CALLS` edges and source-line positions. It includes a conceptual playback view while explicitly marking the dynamics span and unresolved scheduling conditions as inferred.
-
-The WRF Field Guide provides:
-
-- source-led lessons that open indexed entities;
-- research workflows for regional forecasting, urban heat islands, severe convection, and tropical cyclones, presented as checkout-valid exploration templates rather than universal scientific recommendations;
-- a Registry-backed input parameter guide with links to the local `run/README.namelist`;
-- a real-data workflow that marks WPS as external to this checkout;
-- classic and CMake build paths quoted from the checkout's own documentation.
-
-## Tests
-
-The initial indexer tests cover:
-
-- multiline Fortran call normalization and line mapping;
-- symbolic `SELECT CASE` dispatch extraction;
-- correct program-versus-subroutine call scope;
-- rejection of `CALL` words inside diagnostic strings;
-- Registry package source-file and source-line provenance.
-- source-evidenced timestep phase construction.
-
-Add a regression test whenever parser or graph-building behavior changes. Frontend transformation and browser-level acceptance coverage still need expansion.
-
-## Known limitations
-
-- The Fortran analysis is tolerant and hybrid, not a complete compiler frontend.
-- Read/write direction for model fields is not yet reliable enough across all WRF calling conventions.
-- Configuration consistency rules and `physics_suite` override behavior are not yet comprehensively indexed.
-- Full caller paths from `wrf.exe` to every physics driver are not yet resolved through generated and preprocessed code.
-- Enclosing `IF` conditions and scheduling predicates are not yet attached to every call edge; the execution storyboard labels this boundary.
-- Physics and Variables still contain prototype-era interaction and presentation patterns that need the same evidence-first rebuild.
-- The frontend bundle currently includes Cytoscape in the main chunk and should be code-split.
-
-## Development priorities
-
-1. Extract `INTENT` and argument associations for defensible variable journeys.
-2. Index enclosing conditions, configuration validation, compatibility, override, and fatal-condition rules.
-3. Add configuration comparison using only evidenced reachability.
-4. Rebuild Physics and Variables with the scientific-workbench design and evidence contract.
-5. Code-split route views and Cytoscape to reduce the initial frontend bundle.
-
-## Adding another WRF subsystem
-
-1. Identify its configuration and Registry definitions in the local checkout.
-2. Add tolerant extraction with preserved line mappings.
-3. Emit normalized nodes and evidence-bearing edges.
-4. Add a small acceptance fixture plus a checkout-backed acceptance test.
-5. Expose the subsystem progressively; do not render its complete graph by default.
-6. Document unresolved preprocessing or generated-code boundaries as lower confidence.
-
-See `AGENTS.md` for the complete product and scientific requirements and `docs/source-survey.md` for the current checkout survey.
+See `AGENTS.md` for the product contract and `docs/source-survey.md` for the original checkout survey.

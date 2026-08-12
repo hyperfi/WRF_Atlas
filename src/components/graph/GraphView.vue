@@ -343,7 +343,7 @@ onMounted(() => {
     elements: [],
     style,
     layout: { name: 'preset' },
-    wheelSensitivity: 0.25,
+    wheelSensitivity: 0.75,
     minZoom: 0.15,
     maxZoom: 3.5,
   })

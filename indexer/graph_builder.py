@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Set
 import subprocess
+import re
 
 try:
     from .config import FORTRAN_EXTENSIONS, PRIORITY_FILES, REGISTRY_MAIN_FILES
@@ -193,7 +194,7 @@ class KnowledgeGraph:
         }
 
 
-def build_graph(wrf_root: str, output_path: str):
+def build_graph(wrf_root: str, output_path: str, source_config: Optional[Dict[str, Any]] = None):
     """Build the complete knowledge graph from WRF source."""
     kg = KnowledgeGraph()
     
@@ -472,28 +473,67 @@ def build_graph(wrf_root: str, output_path: str):
     # ════════════════════════════════════════════
     # 6. Save output
     # ════════════════════════════════════════════
+    source_config = source_config or {}
+
+    def git_output(*args: str, default: str = "unknown") -> str:
+        try:
+            return subprocess.check_output(
+                ['git', *args], cwd=wrf_root, text=True,
+                stderr=subprocess.DEVNULL
+            ).strip() or default
+        except Exception:
+            return default
+
+    commit = git_output('rev-parse', 'HEAD')
+    branch = git_output('rev-parse', '--abbrev-ref', 'HEAD')
+    tag = source_config.get('tag') or git_output('describe', '--tags', '--exact-match', default='')
+    repository_url = source_config.get('repository_url') or git_output('remote', 'get-url', 'origin', default='')
+    if repository_url.endswith('.git'):
+        repository_url = repository_url[:-4]
+
+    version = tag.lstrip('v') if tag else ''
+    if not version:
+        readme_path = os.path.join(wrf_root, 'README')
+        try:
+            with open(readme_path, 'r', encoding='utf-8', errors='replace') as readme:
+                match = re.search(r'WRF Model Version\s+([0-9]+(?:\.[0-9]+)+)', readme.read(4096), re.I)
+                version = match.group(1) if match else 'unknown'
+        except OSError:
+            version = 'unknown'
+
     try:
-        commit = subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'], cwd=wrf_root, text=True,
-            stderr=subprocess.DEVNULL
-        ).strip()
+        dirty = bool(subprocess.check_output(
+            ['git', 'status', '--porcelain=v1', '--untracked-files=no'],
+            cwd=wrf_root, text=True, stderr=subprocess.DEVNULL
+        ).strip())
     except Exception:
-        commit = "unknown"
-    
+        dirty = None
+
+    submodules = []
     try:
-        branch = subprocess.check_output(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd=wrf_root, text=True,
-            stderr=subprocess.DEVNULL
-        ).strip()
+        for line in subprocess.check_output(
+            ['git', 'submodule', 'status', '--recursive'], cwd=wrf_root,
+            text=True, stderr=subprocess.DEVNULL
+        ).splitlines():
+            match = re.match(r'^[ +\-U]?([0-9a-f]+)\s+([^\s]+)', line.strip())
+            if match:
+                submodules.append({'path': match.group(2), 'commit': match.group(1)})
     except Exception:
-        branch = "unknown"
+        pass
     
     metadata = {
-        'wrf_version': '4.7.1',
+        'wrf_version': version,
         'commit': commit,
         'branch': branch,
+        'tag': tag or None,
+        'dirty': dirty,
+        'source_id': source_config.get('source_id', 'local-wrf'),
+        'source_label': source_config.get('source_label', 'Local WRF checkout'),
+        'source_mode': source_config.get('source_mode', 'local'),
+        'repository_url': repository_url or None,
+        'submodules': submodules,
         'indexed_at': datetime.now().isoformat(),
-        'source_root': wrf_root,
+        'source_root': wrf_root if source_config.get('include_local_path') else None,
         'stats': {
             'total_nodes': len(kg.nodes),
             'total_edges': len(kg.edges),

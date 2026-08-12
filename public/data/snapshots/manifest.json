@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "defaultSnapshot": "wrf-v4.8.0",
+  "snapshots": [
+    {
+      "id": "wrf-v4.8.0",
+      "label": "WRF 4.8.0 official",
+      "description": "Official WRF 4.8.0 release with all pinned physics submodules indexed.",
+      "file": "data/snapshots/wrf-v4.8.0.json",
+      "version": "4.8.0",
+      "commit": "06d4240ae989cc3e50af412bb472df3d9048783c",
+      "tag": "v4.8.0",
+      "sourceMode": "upstream",
+      "repositoryUrl": "https://github.com/wrf-model/WRF",
+      "public": true
+    },
+    {
+      "id": "wrf-v4.7.1",
+      "label": "WRF 4.7.1 official",
+      "description": "Clean official WRF 4.7.1 baseline used to compare the previous Atlas source.",
+      "file": "data/snapshots/wrf-v4.7.1.json",
+      "version": "4.7.1",
+      "commit": "f52c197ed39d12e087d02c50f412d90d418f6186",
+      "tag": "v4.7.1",
+      "sourceMode": "upstream",
+      "repositoryUrl": "https://github.com/wrf-model/WRF",
+      "public": true
+    }
+  ]
+}

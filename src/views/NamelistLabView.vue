@@ -311,7 +311,7 @@ watch(() => [route.query.focus, route.query.value], ([focus, value]) => {
 }, { flush: 'post' })
 
 onMounted(async () => {
-  if (!graphStore.isLoaded && !graphStore.loading) await graphStore.loadGraph()
+  await graphStore.loadGraph()
   if (typeof route.query.value === 'string') {
     const queryValue = Number(route.query.value)
     if (Number.isFinite(queryValue) && focusedOptions.value.some(option => Number(option.value) === queryValue)) {

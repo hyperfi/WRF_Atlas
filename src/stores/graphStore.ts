@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, computed, shallowRef } from 'vue'
-import type { KnowledgeGraph, GraphNode, GraphEdge } from '@/types/graph'
+import type { KnowledgeGraph, GraphNode, GraphEdge, AtlasSnapshot, SnapshotManifest } from '@/types/graph'
 
 export const useGraphStore = defineStore('graph', () => {
   const graph = shallowRef<KnowledgeGraph | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const snapshots = ref<AtlasSnapshot[]>([])
+  const activeSnapshotId = ref<string | null>(null)
 
   // ── Indexed lookups (built on load) ──
   const nodesById = ref<Map<string, GraphNode>>(new Map())
@@ -13,53 +15,122 @@ export const useGraphStore = defineStore('graph', () => {
   const edgesBySource = ref<Map<string, GraphEdge[]>>(new Map())
   const edgesByTarget = ref<Map<string, GraphEdge[]>>(new Map())
   const edgesByType = ref<Map<string, GraphEdge[]>>(new Map())
+  let loadPromise: Promise<void> | null = null
+  let manifestPromise: Promise<void> | null = null
 
-  const loadGraph = async () => {
-    loading.value = true
-    error.value = null
-    try {
-      const res = await fetch('/data/wrf-knowledge-graph.json')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: KnowledgeGraph = await res.json()
-      graph.value = data
+  const publicAsset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`
 
-      // Build indexes
-      const _byId = new Map<string, GraphNode>()
-      const _byType = new Map<string, GraphNode[]>()
-      for (const node of data.nodes) {
-        _byId.set(node.id, node)
-        const list = _byType.get(node.type) || []
-        list.push(node)
-        _byType.set(node.type, list)
+  const loadSnapshots = async () => {
+    if (snapshots.value.length) return
+    if (manifestPromise) return manifestPromise
+    manifestPromise = (async () => {
+      try {
+        const res = await fetch(publicAsset('data/snapshots/manifest.json'))
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const manifest: SnapshotManifest = await res.json()
+        snapshots.value = manifest.snapshots
+        if (import.meta.env.DEV) {
+          const localFile = 'data/local/qwrf-v4.7.1.json'
+          const localResponse = await fetch(publicAsset(localFile), { method: 'HEAD' })
+          const localContentType = localResponse.headers.get('content-type') || ''
+          if (localResponse.ok && localContentType.includes('application/json')) {
+            snapshots.value = [{
+              id: 'qwrf-v4.7.1-local', label: 'QWRF 4.7.1 local',
+              description: 'Protected local research checkout with Morrison instrumentation.',
+              file: localFile, version: '4.7.1', commit: 'local',
+              sourceMode: 'local', repositoryUrl: 'https://github.com/wrf-model/WRF', public: false,
+            }, ...snapshots.value]
+          }
+        }
+        const saved = localStorage.getItem('wrf-atlas-snapshot')
+        activeSnapshotId.value = manifest.snapshots.some(item => item.id === saved)
+          ? saved
+          : manifest.defaultSnapshot
+      } catch {
+        snapshots.value = [{
+          id: 'legacy-local', label: 'Local WRF snapshot', description: 'Legacy generated graph',
+          file: 'data/wrf-knowledge-graph.json', version: 'unknown', commit: 'unknown',
+          sourceMode: 'local', public: false,
+        }]
+        activeSnapshotId.value = 'legacy-local'
+      } finally {
+        manifestPromise = null
       }
-      nodesById.value = _byId
-      nodesByType.value = _byType
+    })()
+    return manifestPromise
+  }
 
-      const _bySrc = new Map<string, GraphEdge[]>()
-      const _byTgt = new Map<string, GraphEdge[]>()
-      const _byEType = new Map<string, GraphEdge[]>()
-      for (const edge of data.edges) {
-        const slist = _bySrc.get(edge.source) || []
-        slist.push(edge)
-        _bySrc.set(edge.source, slist)
-        const tlist = _byTgt.get(edge.target) || []
-        tlist.push(edge)
-        _byTgt.set(edge.target, tlist)
-        const etlist = _byEType.get(edge.type) || []
-        etlist.push(edge)
-        _byEType.set(edge.type, etlist)
-      }
-      edgesBySource.value = _bySrc
-      edgesByTarget.value = _byTgt
-      edgesByType.value = _byEType
+  const indexGraph = (data: KnowledgeGraph) => {
+    graph.value = data
 
-      console.log(`[WRF Atlas] Loaded ${data.nodes.length} nodes, ${data.edges.length} edges`)
-    } catch (e: any) {
-      error.value = e.message || 'Failed to load knowledge graph'
-      console.error('[WRF Atlas] Load failed:', e)
-    } finally {
-      loading.value = false
+    const _byId = new Map<string, GraphNode>()
+    const _byType = new Map<string, GraphNode[]>()
+    for (const node of data.nodes) {
+      _byId.set(node.id, node)
+      const list = _byType.get(node.type) || []
+      list.push(node)
+      _byType.set(node.type, list)
     }
+    nodesById.value = _byId
+    nodesByType.value = _byType
+
+    const _bySrc = new Map<string, GraphEdge[]>()
+    const _byTgt = new Map<string, GraphEdge[]>()
+    const _byEType = new Map<string, GraphEdge[]>()
+    for (const edge of data.edges) {
+      const slist = _bySrc.get(edge.source) || []
+      slist.push(edge)
+      _bySrc.set(edge.source, slist)
+      const tlist = _byTgt.get(edge.target) || []
+      tlist.push(edge)
+      _byTgt.set(edge.target, tlist)
+      const etlist = _byEType.get(edge.type) || []
+      etlist.push(edge)
+      _byEType.set(edge.type, etlist)
+    }
+    edgesBySource.value = _bySrc
+    edgesByTarget.value = _byTgt
+    edgesByType.value = _byEType
+  }
+
+  const loadGraph = async (requestedSnapshot?: string) => {
+    await loadSnapshots()
+    const targetId = requestedSnapshot || activeSnapshotId.value || snapshots.value[0]?.id
+    if (!targetId) throw new Error('No Atlas snapshots are configured')
+    if (graph.value && activeSnapshotId.value === targetId) return
+    if (loadPromise) return loadPromise
+
+    loadPromise = (async () => {
+      loading.value = true
+      error.value = null
+      try {
+        const snapshot = snapshots.value.find(item => item.id === targetId)
+        if (!snapshot) throw new Error(`Unknown Atlas snapshot: ${targetId}`)
+        const res = await fetch(publicAsset(snapshot.file))
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data: KnowledgeGraph = await res.json()
+        indexGraph(data)
+        activeSnapshotId.value = targetId
+        localStorage.setItem('wrf-atlas-snapshot', targetId)
+
+        console.log(`[WRF Atlas] Loaded ${data.nodes.length} nodes, ${data.edges.length} edges`)
+      } catch (e: any) {
+        error.value = e.message || 'Failed to load knowledge graph'
+        console.error('[WRF Atlas] Load failed:', e)
+      } finally {
+        loading.value = false
+        loadPromise = null
+      }
+    })()
+
+    return loadPromise
+  }
+
+  const switchSnapshot = async (snapshotId: string) => {
+    if (snapshotId === activeSnapshotId.value && graph.value) return
+    if (loadPromise) await loadPromise
+    graph.value = null
+    await loadGraph(snapshotId)
   }
 
   // ── Fast getters ──
@@ -235,6 +306,7 @@ export const useGraphStore = defineStore('graph', () => {
   // ── Computed properties ──
 
   const metadata = computed(() => graph.value?.metadata || null)
+  const activeSnapshot = computed(() => snapshots.value.find(item => item.id === activeSnapshotId.value) || null)
 
   const isLoaded = computed(() => graph.value !== null && !loading.value)
 
@@ -253,6 +325,11 @@ export const useGraphStore = defineStore('graph', () => {
     metadata,
     isLoaded,
     stats,
+    snapshots,
+    activeSnapshotId,
+    activeSnapshot,
+    loadSnapshots,
+    switchSnapshot,
     loadGraph,
     getNodeById,
     getNodesByType,

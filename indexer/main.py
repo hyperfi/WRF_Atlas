@@ -25,6 +25,20 @@ def main():
                         help=f"Path to WRF source root (default: {DEFAULT_WRF_SOURCE_ROOT})")
     parser.add_argument('--output-dir', type=str, default=None,
                         help="Path to output directory. If set, overrides the default output file.")
+    parser.add_argument('--output', type=str, default=None,
+                        help="Exact output JSON path. Takes precedence over --output-dir.")
+    parser.add_argument('--source-id', type=str, default='local-wrf',
+                        help="Stable source/snapshot identifier stored in provenance.")
+    parser.add_argument('--source-label', type=str, default='Local WRF checkout',
+                        help="Human-readable source label.")
+    parser.add_argument('--source-mode', choices=('local', 'upstream', 'fork'), default='local',
+                        help="How the indexed source is made available to the Atlas.")
+    parser.add_argument('--repository-url', type=str, default=None,
+                        help="Public Git repository used for source links.")
+    parser.add_argument('--tag', type=str, default=None,
+                        help="Release tag or source label, for example v4.8.0.")
+    parser.add_argument('--include-local-path', action='store_true',
+                        help="Include the absolute source root in generated metadata.")
     
     args = parser.parse_args()
     
@@ -33,8 +47,9 @@ def main():
     
     wrf_root = args.wrf_root
     
-    if args.output_dir:
-        import os
+    if args.output:
+        output_file = os.path.abspath(args.output)
+    elif args.output_dir:
         output_file = os.path.join(args.output_dir, "wrf-knowledge-graph.json")
     else:
         output_file = DEFAULT_OUTPUT_FILE
@@ -46,7 +61,14 @@ def main():
     start_time = time.time()
     
     try:
-        build_graph(wrf_root, output_file)
+        build_graph(wrf_root, output_file, {
+            'source_id': args.source_id,
+            'source_label': args.source_label,
+            'source_mode': args.source_mode,
+            'repository_url': args.repository_url,
+            'tag': args.tag,
+            'include_local_path': args.include_local_path,
+        })
     except Exception as e:
         logger.error(f"Indexing failed: {e}", exc_info=True)
         return 1

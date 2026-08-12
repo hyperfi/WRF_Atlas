@@ -20,6 +20,12 @@
     </div>
 
     <div class="header-right">
+      <label class="snapshot-picker" title="Indexed WRF source snapshot">
+        <span>Source</span>
+        <select :value="graphStore.activeSnapshotId || ''" :disabled="graphStore.loading" @change="changeSnapshot">
+          <option v-for="snapshot in graphStore.snapshots" :key="snapshot.id" :value="snapshot.id">{{ snapshot.label }}</option>
+        </select>
+      </label>
       <div class="mode-toggle" aria-label="Information density">
         <button :class="{ active: uiStore.mode === 'learning' }" @click="uiStore.setMode('learning')">Learning</button>
         <button :class="{ active: uiStore.mode === 'researcher' }" @click="uiStore.setMode('researcher')">Researcher</button>
@@ -36,10 +42,16 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUiStore } from '@/stores/uiStore'
+import { useGraphStore } from '@/stores/graphStore'
 
 const uiStore = useUiStore()
+const graphStore = useGraphStore()
 const route = useRoute()
 defineEmits(['open-search'])
+
+const changeSnapshot = async (event: Event) => {
+  await graphStore.switchSnapshot((event.target as HTMLSelectElement).value)
+}
 
 const labels: Record<string, string> = {
   '/': 'Overview',
@@ -47,6 +59,7 @@ const labels: Record<string, string> = {
   '/execution': 'Execution Map',
   '/physics': 'Physics',
   '/variables': 'Variables',
+  '/compare': 'Compare releases',
   '/source': 'Source',
   '/tours': 'Guided Tours',
 }
@@ -114,6 +127,7 @@ const currentSection = computed(() => {
 .search-trigger svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .search-trigger span { flex: 1; }
 kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.62rem; }
+.snapshot-picker { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: .6rem; text-transform: uppercase; letter-spacing: .06em; }.snapshot-picker select { max-width: 170px; height: 30px; padding: 0 24px 0 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 5px; color: var(--text-secondary); font-size: .66rem; text-transform: none; letter-spacing: 0; }
 
 .mode-toggle { display: flex; padding: 2px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 6px; }
 .mode-toggle button { padding: 4px 9px; background: transparent; border: 0; border-radius: 4px; color: var(--text-muted); cursor: pointer; font-size: 0.7rem; }
@@ -125,5 +139,7 @@ kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--b
   .header-center { padding: 0 12px; }
   .search-trigger span { display: none; }
   .mode-toggle button { padding-inline: 7px; }
+  .snapshot-picker span { display: none; }
+  .snapshot-picker select { max-width: 125px; }
 }
 </style>

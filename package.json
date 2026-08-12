@@ -7,7 +7,10 @@
     "build": "vue-tsc && vite build",
     "test": "python -m unittest discover -s tests -v",
     "preview": "vite preview",
-    "index": "python indexer/main.py --wrf-root E:\\QWRF\\WRF",
+    "index": "python indexer/main.py --output public/data/local/qwrf-v4.7.1.json --include-local-path --source-id qwrf-v4.7.1-local --source-label \"QWRF v4.7.1 local research checkout\" --repository-url https://github.com/wrf-model/WRF",
+    "index:v4.7.1": "python indexer/main.py --wrf-root E:\\QWRF\\WRF-v4.7.1-clean --output public/data/snapshots/wrf-v4.7.1.json --source-id wrf-v4.7.1 --source-label \"WRF 4.7.1 official\" --source-mode upstream --repository-url https://github.com/wrf-model/WRF --tag v4.7.1",
+    "index:v4.8.0": "python indexer/main.py --wrf-root E:\\QWRF\\WRF-v4.8.0-clean --output public/data/snapshots/wrf-v4.8.0.json --source-id wrf-v4.8.0 --source-label \"WRF 4.8.0 official\" --source-mode upstream --repository-url https://github.com/wrf-model/WRF --tag v4.8.0",
+    "index:official": "npm run index:v4.7.1 && npm run index:v4.8.0",
     "atlas": "npm run index && npm run dev"
   },
   "dependencies": {

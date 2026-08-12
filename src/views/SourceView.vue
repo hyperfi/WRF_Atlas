@@ -24,7 +24,7 @@
           :class="{ active: currentFilePath === file.data?.path }"
           @click="selectFile(file.data?.path)"
         >
-          <span class="file-icon">📄</span>
+          <span class="file-icon">F</span>
           <div class="file-info">
             <span class="file-name">{{ getBasename(file.label) }}</span>
             <span class="file-dir">{{ getDirname(file.data?.path) }}</span>
@@ -43,6 +43,10 @@
 
     <!-- Main View: Source Code Viewer -->
     <div class="source-main">
+      <div class="source-context">
+        <div><span>{{ graphStore.metadata?.source_mode === 'local' ? 'Live checkout' : 'Pinned upstream source' }}</span><strong>{{ graphStore.metadata?.source_label }}</strong></div>
+        <a v-if="githubSourceUrl" :href="githubSourceUrl" target="_blank" rel="noreferrer">Open exact commit on GitHub ↗</a>
+      </div>
       <SourceViewer 
         :filePath="currentFilePath"
         :sourceCode="currentSourceCode"
@@ -85,6 +89,15 @@ const filteredFiles = computed(() => {
   )
 })
 
+const normalizedSourcePath = computed(() => currentFilePath.value.replaceAll('\\', '/'))
+const githubSourceUrl = computed(() => {
+  const repository = graphStore.metadata?.repository_url
+  const commit = graphStore.metadata?.commit
+  if (!repository || !commit || commit === 'unknown') return ''
+  const line = targetLine.value ? `#L${targetLine.value}` : ''
+  return `${repository.replace(/\/$/, '')}/blob/${commit}/${normalizedSourcePath.value}${line}`
+})
+
 const getBasename = (path: string) => {
   if (!path) return ''
   const parts = path.split(/[/\\]/)
@@ -103,12 +116,21 @@ const fetchSourceFile = async (filePath: string) => {
   loadingSource.value = true
   currentSourceCode.value = ''
   try {
-    const res = await fetch(`/api/source?file=${encodeURIComponent(filePath)}`)
+    const metadata = graphStore.metadata
+    const useLocalSource = import.meta.env.DEV && metadata?.source_mode === 'local'
+    const normalizedPath = filePath.replaceAll('\\', '/')
+    const sourceUrl = useLocalSource
+      ? `/api/source?file=${encodeURIComponent(filePath)}`
+      : `${metadata?.repository_url?.replace('https://github.com/', 'https://raw.githubusercontent.com/').replace(/\/$/, '')}/${metadata?.commit}/${normalizedPath}`
+    if (!useLocalSource && (!metadata?.repository_url || !metadata?.commit)) {
+      throw new Error('This snapshot has no public source repository configured')
+    }
+    const res = await fetch(sourceUrl)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const text = await res.text()
     currentSourceCode.value = text
   } catch (e: any) {
-    currentSourceCode.value = `! Failed to load source file: ${filePath}\n! Error: ${e.message}\n! Verify file exists at WRF source root.`
+    currentSourceCode.value = `! Source file unavailable in this viewer: ${filePath}\n! Error: ${e.message}\n! Use the exact-commit GitHub link above, or select a live local snapshot.`
   } finally {
     loadingSource.value = false
   }
@@ -132,10 +154,10 @@ watch(() => route.query, (query) => {
   }
 }, { immediate: true })
 
+watch(() => graphStore.activeSnapshotId, () => fetchSourceFile(currentFilePath.value))
+
 onMounted(async () => {
-  if (!graphStore.isLoaded && !graphStore.loading) {
-    await graphStore.loadGraph()
-  }
+  await graphStore.loadGraph()
   const queryFile = route.query.file as string
   if (queryFile) {
     currentFilePath.value = queryFile
@@ -153,6 +175,7 @@ onMounted(async () => {
   gap: 1.25rem;
   height: calc(100vh - var(--header-height) - 3rem);
 }
+.source-main { display: flex; min-width: 0; flex-direction: column; overflow: hidden; }.source-context { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 12px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-bottom: 0; border-radius: 7px 7px 0 0; }.source-context > div { display: flex; flex-direction: column; }.source-context span { color: var(--accent-emerald); font-family: var(--font-mono); font-size: .55rem; text-transform: uppercase; }.source-context strong { margin-top: 2px; font-size: .69rem; }.source-context a { padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-secondary); font-size: .61rem; }.source-main :deep(.source-viewer) { min-height: 0; flex: 1; }
 
 .source-sidebar {
   display: flex;

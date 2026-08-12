@@ -1,14 +1,16 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import OverviewView from '@/views/OverviewView.vue'
-import NamelistLabView from '@/views/NamelistLabView.vue'
-import ExecutionMapView from '@/views/ExecutionMapView.vue'
-import PhysicsView from '@/views/PhysicsView.vue'
-import VariablesView from '@/views/VariablesView.vue'
-import SourceView from '@/views/SourceView.vue'
-import GuidedToursView from '@/views/GuidedToursView.vue'
+
+const NamelistLabView = () => import('@/views/NamelistLabView.vue')
+const ExecutionMapView = () => import('@/views/ExecutionMapView.vue')
+const PhysicsView = () => import('@/views/PhysicsView.vue')
+const VariablesView = () => import('@/views/VariablesView.vue')
+const SourceView = () => import('@/views/SourceView.vue')
+const GuidedToursView = () => import('@/views/GuidedToursView.vue')
+const VersionCompareView = () => import('@/views/VersionCompareView.vue')
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHashHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'overview', component: OverviewView },
     { path: '/tours', name: 'tours', component: GuidedToursView },
@@ -17,6 +19,7 @@ const router = createRouter({
     { path: '/physics', name: 'physics', component: PhysicsView },
     { path: '/physics/:category', name: 'physics-category', component: PhysicsView, props: true },
     { path: '/variables', name: 'variables', component: VariablesView },
+    { path: '/compare', name: 'compare', component: VersionCompareView },
     { path: '/source', name: 'source', component: SourceView }
   ]
 })

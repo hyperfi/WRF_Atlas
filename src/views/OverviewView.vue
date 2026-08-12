@@ -2,13 +2,13 @@
   <div class="overview-view">
     <div v-if="graphStore.loading || !graphStore.isLoaded" class="loading-shell">
       <span class="loading-line"></span>
-      <p>Reading the local WRF source index…</p>
+      <p>Reading the selected WRF source index…</p>
     </div>
 
     <template v-else>
       <header class="page-intro">
         <div>
-          <p class="eyebrow">WRF {{ graphStore.metadata?.wrf_version }} · local source atlas</p>
+          <p class="eyebrow">WRF {{ graphStore.metadata?.wrf_version }} · {{ sourceContextLabel }}</p>
           <h1>Understand what WRF will execute.</h1>
           <p class="intro-copy">
             Move from a namelist choice to the Registry rule, driver branch, called routines,
@@ -18,7 +18,7 @@
         <div class="source-identity">
           <span class="identity-state"><i></i> Index available</span>
           <dl>
-            <div><dt>Checkout</dt><dd>{{ graphStore.metadata?.source_root }}</dd></div>
+            <div><dt>Source</dt><dd>{{ graphStore.metadata?.source_label || graphStore.metadata?.repository_url || 'Indexed WRF source' }}</dd></div>
             <div><dt>Revision</dt><dd>{{ graphStore.metadata?.branch }} @ {{ shortCommit }}</dd></div>
             <div><dt>Indexed</dt><dd>{{ indexedAt }}</dd></div>
           </dl>
@@ -131,6 +131,9 @@ import { useGraphStore } from '@/stores/graphStore'
 import type { GraphNode } from '@/types/graph'
 
 const graphStore = useGraphStore()
+const sourceContextLabel = computed(() => graphStore.metadata?.source_mode === 'local'
+  ? 'local source atlas'
+  : 'versioned upstream atlas')
 
 const questions = [
   { code: 'NML', title: 'What happens when I change a physics option?', description: 'Compare active and inactive dispatch branches.', to: '/namelist' },

@@ -34,7 +34,14 @@ export interface KnowledgeGraph {
     commit: string
     branch?: string
     indexed_at: string
-    source_root: string
+    source_root?: string | null
+    source_id?: string
+    source_label?: string
+    source_mode?: 'local' | 'upstream' | 'fork'
+    repository_url?: string | null
+    tag?: string | null
+    dirty?: boolean | null
+    submodules?: Array<{ path: string; commit: string; repository_url?: string }>
     stats?: {
       total_nodes: number
       total_edges: number
@@ -46,6 +53,25 @@ export interface KnowledgeGraph {
   }
   nodes: GraphNode[]
   edges: GraphEdge[]
+}
+
+export interface AtlasSnapshot {
+  id: string
+  label: string
+  description: string
+  file: string
+  version: string
+  commit: string
+  tag?: string
+  sourceMode: 'local' | 'upstream' | 'fork'
+  repositoryUrl?: string
+  public: boolean
+}
+
+export interface SnapshotManifest {
+  schemaVersion: number
+  defaultSnapshot: string
+  snapshots: AtlasSnapshot[]
 }
 
 // Physics categories for the UI

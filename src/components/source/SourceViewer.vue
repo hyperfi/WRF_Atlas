@@ -2,7 +2,7 @@
   <div class="source-viewer glass-panel">
     <div class="viewer-header">
       <div class="file-info">
-        <span class="file-icon">📄</span>
+        <span class="file-icon">F</span>
         <span class="file-path">{{ filePath || 'No file selected' }}</span>
         <span class="line-count" v-if="formattedLines.length">{{ formattedLines.length }} lines</span>
       </div>

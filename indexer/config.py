@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 # Default Paths
-DEFAULT_WRF_SOURCE_ROOT = r"E:\QWRF\WRF"
+DEFAULT_WRF_SOURCE_ROOT = os.environ.get("WRF_SOURCE_ROOT", r"E:\QWRF\WRF")
 ATLAS_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_OUTPUT_DIR = os.path.join(ATLAS_ROOT, "public", "data")
 DEFAULT_OUTPUT_FILE = os.path.join(DEFAULT_OUTPUT_DIR, "wrf-knowledge-graph.json")

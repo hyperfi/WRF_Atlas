@@ -23,7 +23,7 @@
     </nav>
 
     <div class="sidebar-footer">
-      <div class="source-status" :title="graphStore.metadata?.source_root || 'Source not loaded'">
+      <div class="source-status" :title="graphStore.metadata?.source_label || graphStore.metadata?.repository_url || 'Source not loaded'">
         <span class="status-dot" :class="{ ready: graphStore.isLoaded }"></span>
         <span v-if="!uiStore.sidebarCollapsed" class="status-copy">
           <span>{{ graphStore.isLoaded ? `WRF ${graphStore.metadata?.wrf_version}` : 'Loading index' }}</span>
@@ -48,6 +48,7 @@ const navigation = [
   { to: '/execution', label: 'Execution Map', glyph: 'EX' },
   { to: '/physics', label: 'Physics', glyph: 'PH' },
   { to: '/variables', label: 'Variables', glyph: 'VR' },
+  { to: '/compare', label: 'Compare', glyph: 'CP' },
   { to: '/source', label: 'Source', glyph: 'SC' },
   { to: '/tours', label: 'Guided Tours', glyph: 'GT' },
 ]

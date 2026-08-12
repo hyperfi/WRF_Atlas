@@ -42,6 +42,7 @@ const wrfSourcePlugin = (): Plugin => ({
 })
 
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [vue(), wrfSourcePlugin()],
   resolve: {
     alias: {

@@ -59,3 +59,4 @@ workspace/
 # Transient indexer output. The published knowledge graph itself remains tracked.
 public/data/*.tmp
 public/data/source-cache/
+public/data/local/
