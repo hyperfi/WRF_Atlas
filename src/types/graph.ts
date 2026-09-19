@@ -74,6 +74,32 @@ export interface SnapshotManifest {
   snapshots: AtlasSnapshot[]
 }
 
+export interface GraphifySearchEntry {
+  id: string
+  label: string
+  kind: string
+  path: string
+  line?: number | null
+  confidence: 'extracted' | 'inferred'
+  origin: 'graphify'
+  relations: string[]
+}
+
+export interface GraphifySearchIndex {
+  schemaVersion: number
+  metadata: {
+    provider: 'graphify'
+    role: 'supplementary-code-search'
+    graphifyVersion: string
+    generatedAt: string
+    sourceLabel: string
+    sourceCommit: string
+    scopes: string[]
+    stats: { entries: number; connections: number }
+  }
+  entries: GraphifySearchEntry[]
+}
+
 // Physics categories for the UI
 export const PHYSICS_CATEGORIES = {
   land_surface: { label: 'Land Surface', namelist: 'sf_surface_physics', icon: '🌲', color: '#10b981' },

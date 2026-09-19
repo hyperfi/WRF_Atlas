@@ -51,6 +51,43 @@ npm run build
 npm run preview
 ```
 
+## Optional Graphify sidecar
+
+Graphify can add broad symbol, path, and relationship search across the WRF
+codebase. It is intentionally supplementary: the Atlas indexer remains the
+authority for Registry mappings, physics dispatch, active branches, variable
+meaning, and all evidence shown as an executable WRF path.
+
+Generate the local sidecar index with:
+
+```powershell
+$env:WRF_SOURCE_ROOT = 'E:\QWRF\WRF-v4.8.0-clean'
+npm run graphify:index
+npm run dev
+```
+
+The command uses a pinned `graphifyy` release through `uv` when a standalone
+`graphify` command is not installed. It performs local AST-only extraction over
+`main`, `share`, `frame`, `dyn_em`, and `phys`; no model API or cloud backend is
+required. Raw Graphify working data stays in ignored `.graphify-work/`. The
+adapter writes an ignored compact index to
+`public/data/local/graphify-search.json`.
+
+Open the command palette and choose **Broader codebase / Graphify** to search
+that index. Results retain file, line, confidence, and Graphify provenance. A
+result opens the normal Atlas source viewer with a visible warning that broad
+discovery does not itself prove WRF execution.
+
+To reuse existing raw graphs after changing only the adapter:
+
+```powershell
+npm run graphify:adapt
+```
+
+The public GitHub Pages build does not include the local sidecar by default. A
+reviewed, size-limited index may be placed at `public/data/graphify/search.json`
+later; the application treats its absence as a supported state.
+
 ## Public and GitHub Pages behavior
 
 The repository contains source-path-free official snapshots under `public/data/snapshots/`. The public application defaults to WRF 4.8.0 and lets visitors switch to 4.7.1 or compare both versions. Source references are fetched from the exact indexed commit on the public [wrf-model/WRF repository](https://github.com/wrf-model/WRF), so a separate copy of WRF does not have to be committed to the Atlas repository.
@@ -80,8 +117,8 @@ The Atlas must display unresolved boundaries instead of inventing a path. A rout
 
 ```text
 WRF checkout
-  -> tolerant Python Fortran and Registry analysis
-  -> normalized, evidence-bearing version snapshot
+  -> Atlas Fortran + Registry analysis -> authoritative execution graph
+  -> optional Graphify AST analysis    -> supplementary search sidecar
   -> Vue 3 + TypeScript + Cytoscape application
   -> local Vite experience or static GitHub Pages site
 ```

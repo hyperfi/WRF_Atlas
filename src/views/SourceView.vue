@@ -45,6 +45,7 @@
     <div class="source-main">
       <div class="source-context">
         <div><span>{{ sourceContextTitle }}</span><strong>{{ sourceContextDetail }}</strong></div>
+        <p v-if="route.query.origin === 'graphify'" class="graphify-notice">Graphify discovery · verify execution meaning with Atlas evidence</p>
         <a v-if="githubSourceUrl" :href="githubSourceUrl" target="_blank" rel="noreferrer">Open exact commit on GitHub ↗</a>
       </div>
       <SourceViewer 
@@ -189,6 +190,7 @@ onMounted(async () => {
   height: calc(100vh - var(--header-height) - 3rem);
 }
 .source-main { display: flex; min-width: 0; flex-direction: column; overflow: hidden; }.source-context { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 12px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-bottom: 0; border-radius: 7px 7px 0 0; }.source-context > div { display: flex; flex-direction: column; }.source-context span { color: var(--accent-emerald); font-family: var(--font-mono); font-size: .55rem; text-transform: uppercase; }.source-context strong { margin-top: 2px; font-size: .69rem; }.source-context a { padding: 6px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-secondary); font-size: .61rem; }.source-main :deep(.source-viewer) { min-height: 0; flex: 1; }
+.graphify-notice { margin: 0 0 0 auto; color: var(--accent-amber); font-size: .61rem; }
 
 .source-sidebar {
   display: flex;

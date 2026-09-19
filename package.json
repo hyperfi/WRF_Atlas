@@ -11,6 +11,8 @@
     "index:v4.7.1": "python indexer/main.py --wrf-root E:\\QWRF\\WRF-v4.7.1-clean --output public/data/snapshots/wrf-v4.7.1.json --source-id wrf-v4.7.1 --source-label \"WRF 4.7.1 official\" --source-mode upstream --repository-url https://github.com/wrf-model/WRF --tag v4.7.1",
     "index:v4.8.0": "python indexer/main.py --wrf-root E:\\QWRF\\WRF-v4.8.0-clean --output public/data/snapshots/wrf-v4.8.0.json --source-id wrf-v4.8.0 --source-label \"WRF 4.8.0 official\" --source-mode upstream --repository-url https://github.com/wrf-model/WRF --tag v4.8.0",
     "index:official": "npm run index:v4.7.1 && npm run index:v4.8.0",
+    "graphify:index": "python tools/graphify_pipeline.py",
+    "graphify:adapt": "python tools/graphify_pipeline.py --adapt-only",
     "atlas": "npm run index && npm run dev"
   },
   "dependencies": {

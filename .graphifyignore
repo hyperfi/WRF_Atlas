@@ -1,0 +1,12 @@
+# Used when Graphify is run against the Atlas repository itself. The WRF
+# pipeline scopes extraction explicitly to scientific source directories.
+node_modules/
+dist/
+public/data/
+.graphify-work/
+tmp/
+*.nc
+wrfout_*
+wrfrst_*
+rsl.out.*
+rsl.error.*
