@@ -38,6 +38,8 @@ npm run index
 
 In development, the application detects that local snapshot and offers it in the source selector. Local source evidence is loaded through the Vite development server, so clicking source references opens files from that checkout.
 
+For a separate Ubuntu WRF build walkthrough, open **Guided Tours → Build locally → Ubuntu + gfortran** in the Atlas. It covers a serial `em_quarter_ss` idealized case with `NETCDF=/usr`, from dependency checks through `ideal.exe` and `wrf.exe`. The guide is instructional; the Atlas does not execute these commands or validate the scientific output.
+
 For the fastest source browsing, click **Local folder** in the Atlas header and choose the root of any WRF checkout. In Chromium-based browsers, the Atlas reads source files directly from that folder without copying or uploading them. The selected knowledge-graph snapshot remains visible separately, so choose the matching WRF version when exact graph-to-source correspondence matters. The browser may remember the folder handle, but it controls whether read permission persists between sessions.
 
 Useful commands:
