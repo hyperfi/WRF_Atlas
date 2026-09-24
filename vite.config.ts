@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import fs from 'fs'
+import { localGraphifyPlugin } from './tools/localGraphifyPlugin'
 
 const wrfSourcePlugin = (): Plugin => ({
   name: 'wrf-source-plugin',
@@ -43,7 +44,7 @@ const wrfSourcePlugin = (): Plugin => ({
 
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/',
-  plugins: [vue(), wrfSourcePlugin()],
+  plugins: [vue(), wrfSourcePlugin(), localGraphifyPlugin()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

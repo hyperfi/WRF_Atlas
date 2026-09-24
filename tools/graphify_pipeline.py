@@ -19,12 +19,20 @@ GRAPHIFY_VERSION = "0.9.63"
 
 
 def _graphify_command() -> list[str]:
-    executable = shutil.which("graphify")
-    if executable:
-        return [executable]
     uv = shutil.which("uv")
     if uv:
         return [uv, "tool", "run", "--from", f"graphifyy=={GRAPHIFY_VERSION}", "graphify"]
+    executable = shutil.which("graphify")
+    if executable:
+        version = subprocess.run(
+            [executable, "--version"], capture_output=True, text=True, check=False
+        )
+        if version.returncode == 0 and version.stdout.strip() == f"graphify {GRAPHIFY_VERSION}":
+            return [executable]
+        raise RuntimeError(
+            f"Graphify {GRAPHIFY_VERSION} is required, but {version.stdout.strip() or executable} "
+            "is installed. Install uv for the pinned release or install that Graphify version."
+        )
     raise RuntimeError(
         "Graphify is not available. Install uv, then run: "
         f"uv tool install graphifyy=={GRAPHIFY_VERSION}"
@@ -66,7 +74,17 @@ def run_pipeline(args: argparse.Namespace) -> Path:
                 "--out", str(scope_output),
             ]
             print(f"[graphify] indexing {source_dir}")
-            subprocess.run(run_command, cwd=PROJECT_ROOT, check=True)
+            try:
+                subprocess.run(run_command, cwd=PROJECT_ROOT, check=True)
+            except subprocess.CalledProcessError as error:
+                detail = (
+                    " (Windows access violation; check the Graphify version and try again)"
+                    if error.returncode in (3221225477, -1073741819) else ""
+                )
+                raise RuntimeError(
+                    f"Graphify failed while indexing {scope} (exit {error.returncode}){detail}. "
+                    f"The previous Atlas search index was kept."
+                ) from error
         if not graph_path.is_file():
             raise FileNotFoundError(f"Graphify did not produce {graph_path}")
         graph_inputs.append(GraphifyInput(graph_path=graph_path, path_prefix=scope))

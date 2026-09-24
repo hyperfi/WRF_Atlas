@@ -122,6 +122,10 @@ export const useLocalSourceStore = defineStore('localSource', () => {
   }
 
   const readTextFile = async (relativePath: string) => {
+    return (await readFile(relativePath)).text()
+  }
+
+  const readFile = async (relativePath: string) => {
     const root = directoryHandle.value
     if (!root) throw new Error('No local WRF folder is connected.')
     const parts = relativePath.replaceAll('\\', '/').split('/').filter(Boolean)
@@ -129,8 +133,8 @@ export const useLocalSourceStore = defineStore('localSource', () => {
     let directory = root
     for (const part of parts.slice(0, -1)) directory = await directory.getDirectoryHandle(part)
     const fileHandle = await directory.getFileHandle(parts.at(-1)!)
-    return (await fileHandle.getFile()).text()
+    return fileHandle.getFile()
   }
 
-  return { connected, directoryHandle, folderName, error, restoring, supported, restore, chooseFolder, disconnect, readTextFile }
+  return { connected, directoryHandle, folderName, error, restoring, supported, restore, chooseFolder, disconnect, readTextFile, readFile }
 })

@@ -11,7 +11,8 @@ export const useGraphifyStore = defineStore('graphify', () => {
 
   const publicAsset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`
 
-  const loadIndex = async () => {
+  const loadIndex = async (refresh = false) => {
+    if (refresh) index.value = null
     if (index.value || loadPromise) return loadPromise
     loadPromise = (async () => {
       loading.value = true
@@ -21,7 +22,7 @@ export const useGraphifyStore = defineStore('graphify', () => {
         : ['data/graphify/search.json']
       try {
         for (const candidate of candidates) {
-          const response = await fetch(publicAsset(candidate))
+          const response = await fetch(`${publicAsset(candidate)}${refresh ? `?updated=${Date.now()}` : ''}`, { cache: refresh ? 'no-store' : 'default' })
           if (response.status === 404) continue
           if (!response.ok) throw new Error(`HTTP ${response.status} loading ${candidate}`)
           const data: GraphifySearchIndex = await response.json()

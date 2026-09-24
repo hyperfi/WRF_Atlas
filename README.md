@@ -68,8 +68,10 @@ npm run graphify:index
 npm run dev
 ```
 
-The command uses a pinned `graphifyy` release through `uv` when a standalone
-`graphify` command is not installed. It performs local AST-only extraction over
+The command prefers the pinned `graphifyy` 0.9.63 release through `uv`, even
+if another standalone `graphify` version is installed. Without `uv`, the
+standalone version must match 0.9.63; this avoids a Windows extractor crash
+observed with 0.9.66 on the `share` scope. It performs local AST-only extraction over
 `main`, `share`, `frame`, `dyn_em`, and `phys`; no model API or cloud backend is
 required. Raw Graphify working data stays in ignored `.graphify-work/`. The
 adapter writes an ignored compact index to
@@ -79,6 +81,17 @@ Open the command palette and choose **Broader codebase / Graphify** to search
 that index. Results retain file, line, confidence, and Graphify provenance. A
 result opens the normal Atlas source viewer with a visible warning that broad
 discovery does not itself prove WRF execution.
+
+For one-click local indexing, run `npm run dev`, choose **Local folder** in the
+Atlas header, then open **Broader codebase** and click **Build index**. The
+browser cannot disclose a selected folder's absolute path to Python, so the
+palette pre-fills `WRF_SOURCE_ROOT` (or the default checkout) and lets you
+correct it. Before launching Graphify, the local server compares two WRF files
+against the selected browser folder to ensure the path matches. Progress and
+errors appear in the palette; on success, search refreshes without a restart.
+The runner only accepts requests from the local Atlas on loopback and is not
+included in the static GitHub Pages deployment. A local checkout requires a
+working Python and Graphify installation (or `uv` for the pinned fallback).
 
 To reuse existing raw graphs after changing only the adapter:
 
