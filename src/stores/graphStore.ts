@@ -181,10 +181,23 @@ export const useGraphStore = defineStore('graph', () => {
    */
   const getActiveSubroutines = (namelistVar: string, value: string) => {
     const nlId = `namelist:${namelistVar}`
-    const awEdges = getEdgesTo(nlId).filter(e => 
-      e.type === 'ACTIVE_WHEN' && e.data?.value === value
+    const symbolicValues = new Set(
+      getPackagesForNamelist(namelistVar)
+        .filter(option => String(option.value) === String(value))
+        .map(option => String(option.node?.data?.package_name || option.packageName).trim().toUpperCase())
     )
-    return awEdges.map(e => ({
+    symbolicValues.add(String(value).trim().toUpperCase())
+    const awEdges = getEdgesTo(nlId).filter(e => 
+      e.type === 'ACTIVE_WHEN' && String(e.data?.value || '')
+        .split(',')
+        .some(caseValue => symbolicValues.has(caseValue.trim().toUpperCase()))
+    )
+    const unique = new Map<string, GraphEdge>()
+    for (const edge of awEdges) {
+      const evidence = edge.data?.evidence?.[0]
+      unique.set(`${edge.source}:${evidence?.path || ''}:${evidence?.startLine || ''}`, edge)
+    }
+    return Array.from(unique.values()).map(e => ({
       node: getNodeById(e.source),
       edge: e,
       condition: e.data?.condition || '',

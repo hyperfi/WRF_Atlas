@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUiStore } from '@/stores/uiStore'
-import { PHYSICS_CATEGORIES, type PhysicsCategory } from '@/types/graph'
+import { PHYSICS_CATEGORIES, type PhysicsCategory, type GraphEdge, type SourceEvidence } from '@/types/graph'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,11 +69,43 @@ const activateScheme = (value: string) => {
   }
 }
 
+const isAuxiliaryCall = (edge: GraphEdge) => /^(wrf_debug|wrf_error_fatal|add_multi_perturb|remove_multi_perturb)/i
+  .test(graphStore.getNodeById(edge.target)?.label || edge.target.replace('subroutine:', ''))
+
 const selectedSchemeDetails = computed(() => {
   if (!selectedSchemeValue.value || !currentCategory.value) return null
-  const subroutines = graphStore.getActiveSubroutines(currentCategory.value.namelist, selectedSchemeValue.value)
-  return { subroutines }
+  const selector = currentCategory.value.namelist
+  const path = graphStore.getExecutionPath(selector, selectedSchemeValue.value)
+  const registry = path.edges.find(edge => edge.type === 'SELECTS')
+  const calls = path.edges.filter(edge => edge.type === 'CALLS')
+    .sort((a, b) => Number(isAuxiliaryCall(a)) - Number(isAuxiliaryCall(b)))
+  const callLocations = new Set(calls.map(edge => `${edge.target}:${edge.data?.evidence?.[0]?.path}:${edge.data?.evidence?.[0]?.startLine}`))
+  const conditionalCalls = graphStore.getActiveSubroutines(selector, selectedSchemeValue.value)
+    .filter(item => !callLocations.has(`${item.edge.source}:${item.evidence?.[0]?.path}:${item.evidence?.[0]?.startLine}`))
+  const configReads = graphStore.getEdgesTo(`namelist:${selector}`)
+    .filter(edge => edge.type === 'READS_CONFIG' && edge.data?.evidence?.length)
+    .slice(0, 5)
+  const packageNode = path.nodes.find(node => node.type === 'registry_package')
+  const driverName = graphStore.getNodeById(`namelist:${selector}`)?.data?.driver as string | undefined
+  return { registry, packageNode, driverName, calls, conditionalCalls, configReads }
 })
+
+const callLabel = (edge: GraphEdge) => graphStore.getNodeById(edge.target)?.label || edge.target.replace('subroutine:', '')
+const evidenceOf = (edge: GraphEdge): SourceEvidence | undefined => edge.data?.evidence?.[0]
+const definitionOf = (id: string): SourceEvidence | undefined => {
+  const node = graphStore.getNodeById(id)
+  const path = node?.data?.file
+  const line = node?.data?.line
+  return typeof path === 'string' && typeof line === 'number' ? { path, startLine: line } : undefined
+}
+const openEvidence = (evidence: SourceEvidence | undefined) => {
+  if (evidence?.path) router.push({ path: '/source', query: { file: evidence.path, line: String(evidence.startLine || 1) } })
+}
+const openNamelistTrace = () => {
+  if (currentCategory.value && selectedSchemeValue.value) {
+    router.push({ path: '/namelist', query: { focus: currentCategory.value.namelist, value: selectedSchemeValue.value } })
+  }
+}
 </script>
 
 <template>
@@ -162,21 +194,67 @@ const selectedSchemeDetails = computed(() => {
 
             <!-- Details when selected -->
             <div class="scheme-details" v-if="scheme.value === selectedSchemeValue" @click.stop>
-              <h5>{{ uiStore.mode === 'learning' ? '🌱 How This Scheme Executes' : '🔬 Subroutines & Source Files' }}</h5>
-              <div v-if="selectedSchemeDetails && selectedSchemeDetails.subroutines.length > 0">
-                 <div v-for="(sub, i) in selectedSchemeDetails.subroutines" :key="i" class="sub-item">
-                    <div style="margin-bottom: 0.25rem;">
-                      <span class="text-muted">Source:</span> 
-                      <span class="source-file" v-if="sub.evidence && sub.evidence.length > 0">{{ sub.evidence[0].path }}</span>
-                      <span class="source-file" v-else-if="sub.node?.data?.file">{{ sub.node.data.file }}</span>
-                      <span v-else>Unknown</span>
+              <h5>How this selection reaches WRF code</h5>
+              <div v-if="selectedSchemeDetails" class="execution-trace">
+                <div class="trace-step">
+                  <span class="trace-index">01</span>
+                  <div>
+                    <strong>Configuration and Registry</strong>
+                    <p><code>{{ currentCategory.namelist }} = {{ scheme.value }}</code> selects <code>{{ selectedSchemeDetails.packageNode?.data?.package_name || scheme.packageName }}</code>.</p>
+                    <button v-if="selectedSchemeDetails.registry?.data?.evidence?.[0]" class="evidence-link" @click="openEvidence(evidenceOf(selectedSchemeDetails.registry))">View Registry line ↗</button>
+                  </div>
+                </div>
+                <div class="trace-step">
+                  <span class="trace-index">02</span>
+                  <div>
+                    <strong>Runtime branch</strong>
+                    <p v-if="selectedSchemeDetails.calls.length">The indexed <code>{{ selectedSchemeDetails.driverName }}</code> driver has matching CASE-branch calls. The join from the numeric Registry value to its symbolic constant is inferred. Individual calls may have further conditions; the locations below are exact source references.</p>
+                    <p v-else-if="selectedSchemeDetails.driverName">The index associates this selector with <code>{{ selectedSchemeDetails.driverName }}</code>, but has not resolved a matching runtime CASE-branch call for this value.</p>
+                    <p v-else>No standalone driver dispatch is resolved for this selector in the current index.</p>
+                  </div>
+                </div>
+                <div v-if="selectedSchemeDetails.calls.length" class="trace-step">
+                  <span class="trace-index">03</span>
+                  <div>
+                    <strong>Calls in the matching branch</strong>
+                    <div class="evidence-list">
+                      <div v-for="(call, i) in selectedSchemeDetails.calls" :key="`${call.target}-${i}`" class="call-entry">
+                        <button @click="openEvidence(evidenceOf(call))">
+                          <code>{{ callLabel(call) }}</code><span>Call: {{ evidenceOf(call)?.path }}:{{ evidenceOf(call)?.startLine }}</span>
+                        </button>
+                        <button v-if="definitionOf(call.target)" class="definition-link" @click="openEvidence(definitionOf(call.target))">
+                          Open routine definition · {{ definitionOf(call.target)?.path }}:{{ definitionOf(call.target)?.startLine }} ↗
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <span class="text-muted">Subroutine:</span> <span class="sub-name">{{ sub.node?.label }}</span>
+                  </div>
+                </div>
+                <div v-if="selectedSchemeDetails.conditionalCalls.length && !selectedSchemeDetails.calls.length" class="trace-step">
+                  <span class="trace-index">03</span>
+                  <div>
+                    <strong>Conditional calls found elsewhere</strong>
+                    <p>These calls carry the selected symbolic condition in source, but the Atlas has not connected them into a complete runtime path.</p>
+                    <div class="evidence-list">
+                      <button v-for="(item, i) in selectedSchemeDetails.conditionalCalls.slice(0, 8)" :key="`${item.edge.source}-${i}`" @click="openEvidence(item.evidence?.[0])">
+                        <code>{{ item.node?.label || item.edge.source }}</code><span>{{ item.evidence?.[0]?.path }}:{{ item.evidence?.[0]?.startLine }}</span>
+                      </button>
                     </div>
-                 </div>
+                  </div>
+                </div>
+                <div v-if="!selectedSchemeDetails.calls.length && !selectedSchemeDetails.conditionalCalls.length" class="trace-step unresolved-trace">
+                  <span class="trace-index">?</span>
+                  <div>
+                    <strong>Implementation path not yet resolved</strong>
+                    <p>The Registry selection is known, but this index does not prove which scheme routine executes for it. These source references read the selector; a read alone does not prove activation.</p>
+                    <div class="evidence-list" v-if="selectedSchemeDetails.configReads.length">
+                      <button v-for="(read, i) in selectedSchemeDetails.configReads" :key="`${read.source}-${i}`" @click="openEvidence(evidenceOf(read))">
+                        <code>{{ read.source.replace('subroutine:', '') }}</code><span>{{ evidenceOf(read)?.path }}:{{ evidenceOf(read)?.startLine }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <button class="trace-deep-link" @click="openNamelistTrace">Open full trace in Namelist Lab ↗</button>
               </div>
-              <div v-else class="text-muted" style="font-size: 0.9rem;">No implementation details found.</div>
             </div>
           </div>
         </div>
@@ -436,29 +514,23 @@ const selectedSchemeDetails = computed(() => {
   color: #e2e8f0;
   font-size: 1rem;
 }
-.sub-item {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.05);
-  padding: 0.85rem;
-  border-radius: 6px;
-  margin-bottom: 0.75rem;
-  font-size: 0.9rem;
-}
-.text-muted {
-  color: #64748b;
-}
-.source-file {
-  font-family: monospace;
-  color: #60a5fa;
-  background: rgba(96, 165, 250, 0.1);
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
-}
-.sub-name {
-  font-weight: bold;
-  color: #f8fafc;
-}
-
+.execution-trace { display: grid; gap: .8rem; }
+.trace-step { display: grid; grid-template-columns: 27px minmax(0,1fr); gap: .65rem; align-items: start; }
+.trace-index { color: #6ee7b7; font: 600 .68rem var(--font-mono); padding-top: .12rem; }
+.trace-step strong { color: #dce8e7; font-size: .8rem; font-weight: 620; }
+.trace-step p { margin: .28rem 0 0; color: #a8b9c4; font-size: .76rem; line-height: 1.48; }
+.trace-step p code { color: #b5d9d1; font: .72rem var(--font-mono); overflow-wrap: anywhere; }
+.evidence-link, .trace-deep-link { margin-top: .48rem; padding: 0; border: 0; background: transparent; color: #8bd4c6; cursor: pointer; font-size: .72rem; text-align: left; }
+.evidence-link:hover, .trace-deep-link:hover { text-decoration: underline; }
+.evidence-list { display: grid; gap: .3rem; margin-top: .5rem; }
+.call-entry { display: grid; gap: .12rem; }
+.evidence-list button { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; width: 100%; padding: .45rem .55rem; border: 1px solid rgba(159,193,194,.15); border-radius: 4px; background: rgba(10,24,33,.38); color: #c9d9dc; cursor: pointer; text-align: left; }
+.evidence-list button:hover { border-color: rgba(110,231,183,.5); }
+.evidence-list .definition-link { display: block; padding: .18rem .55rem .4rem; border: 0; background: transparent; color: #8bd4c6; font: .65rem var(--font-mono); }
+.evidence-list code { font: .7rem var(--font-mono); overflow-wrap: anywhere; }
+.evidence-list span { color: #8da4b0; font: .59rem var(--font-mono); overflow-wrap: anywhere; text-align: right; }
+.unresolved-trace .trace-index { color: #e9ba7a; }
+.trace-deep-link { margin-left: 2.1rem; }
 .loading-state {
   flex: 1;
   display: flex;
