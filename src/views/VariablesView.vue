@@ -2,17 +2,22 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
+import { useEvidenceStore } from '@/stores/evidenceStore'
+import ExecutionTrace from '@/components/graph/ExecutionTrace.vue'
+import type { TraceStep } from '@/lib/presentation'
 import type { GraphEdge, GraphNode, SourceEvidence } from '@/types/graph'
 
 const graphStore = useGraphStore()
 const route = useRoute()
 const router = useRouter()
+const evidenceStore = useEvidenceStore()
 
 const searchQuery = ref('')
 const displayCount = ref(50)
 const siteCount = ref(18)
 const callerFilter = ref('all')
 const selectedVar = ref<GraphNode | null>(null)
+const journeyStage = ref('registry')
 const featuredFields = ['HFX', 'QFX', 'TSK', 'SMOIS', 'PBLH']
 
 const stateVariables = computed(() => {
@@ -39,11 +44,20 @@ const loadMore = () => {
   displayCount.value += 50
 }
 
+const closeVariable = () => {
+  selectedVar.value = null
+  const { field, selector, value, ...rest } = route.query
+  router.replace({ query: rest })
+}
 const selectVariable = (v: GraphNode) => {
+  if (selectedVar.value?.id === v.id) {
+    closeVariable()
+    return
+  }
   selectedVar.value = v
   siteCount.value = 18
   callerFilter.value = 'all'
-  searchQuery.value = v.label
+  journeyStage.value = 'registry'
   router.replace({ query: { field: v.label } })
 }
 
@@ -104,29 +118,35 @@ const fieldArgument = (edge: GraphEdge) => edge.data?.state_args?.find(
   (arg: { name: string }) => arg.name === selectedVar.value?.label.toLowerCase())?.argument || selectedVar.value?.label
 const routineLabel = (id: string) => graphStore.getNodeById(id)?.label || id.replace(/^\w+:/, '')
 const openEvidence = (evidence: SourceEvidence | undefined) => {
-  if (evidence?.path) router.push({ path: '/source', query: { file: evidence.path, line: String(evidence.startLine || 1) } })
+  if (evidence?.path) evidenceStore.open(evidence, `${selectedVar.value?.label.toUpperCase()} · source reference`, 'exact', 'A matching field name in a declaration or CALL argument does not establish read/write direction or runtime execution.')
 }
 const registryEvidence = computed<SourceEvidence | undefined>(() => {
   const node = selectedVar.value
   return node?.data?.source_file ? { path: node.data.source_file, startLine: node.data.source_line } : undefined
 })
 
-watch(() => [route.query.field, graphStore.isLoaded], () => {
-  if (!graphStore.isLoaded || typeof route.query.field !== 'string') return
+const journeySteps = computed<TraceStep[]>(() => [
+  { id: 'registry', label: 'Registry', value: selectedVar.value?.label.toUpperCase() || 'Field', confidence: registryEvidence.value ? 'exact' : 'unresolved' },
+  { id: 'interfaces', label: 'Interfaces', value: `${referencingSubroutines.value.length} name matches`, confidence: 'inferred' },
+  { id: 'calls', label: 'CALL arguments', value: `${allCallSites.value.length} handoffs`, confidence: allCallSites.value.length ? 'inferred' : 'unresolved' },
+])
+watch(() => [route.query.field, graphStore.isLoaded, graphStore.activeSnapshotId], () => {
+  if (!graphStore.isLoaded) return
+  if (typeof route.query.field !== 'string') { selectedVar.value = null; return }
   const found = graphStore.getNodeById(`state:${route.query.field.toLowerCase()}`)
   if (found) {
     selectedVar.value = found
-    searchQuery.value = found.label
     callerFilter.value = 'all'
     siteCount.value = 18
-  }
+    journeyStage.value = route.query.selector ? 'calls' : 'registry'
+  } else selectedVar.value = null
 }, { immediate: true })
 
 onMounted(() => graphStore.loadGraph())
 </script>
 
 <template>
-  <div class="variables-view">
+  <div class="variables-view" :class="{ 'has-selection': selectedVar }">
     <div class="sidebar glass-panel">
       <div class="search-box">
         <p class="eyebrow">Registry field index</p>
@@ -140,8 +160,9 @@ onMounted(() => graphStore.loadGraph())
         />
         <div class="var-count">{{ filteredVariables.length }} variables found</div>
         <div class="featured-fields">
-          <button v-for="name in featuredFields" :key="name" @click="selectByName(name)">{{ name }}</button>
+          <button v-for="name in featuredFields" :key="name" :aria-pressed="selectedVar?.label.toLowerCase() === name.toLowerCase()" @click="selectByName(name)">{{ name }}</button>
         </div>
+        <p class="selection-hint">Click a field again to close its details.</p>
       </div>
       
       <div class="var-list">
@@ -150,6 +171,7 @@ onMounted(() => graphStore.loadGraph())
           :key="v.id"
           class="var-card"
           :class="{ active: selectedVar?.id === v.id }"
+          :aria-pressed="selectedVar?.id === v.id"
           @click="selectVariable(v)"
           type="button"
         >
@@ -173,8 +195,9 @@ onMounted(() => graphStore.loadGraph())
     <div class="detail-panel glass-panel">
       <div v-if="selectedVar" class="detail-content">
         <div class="detail-header">
+          <button class="back-to-variables" @click="closeVariable">← Back to variables</button>
           <p class="eyebrow">Source-grounded field path</p>
-          <h2>{{ selectedVar.label }}</h2>
+          <h2>{{ selectedVar.label.toUpperCase() }}</h2>
           <div class="tags">
             <span class="tag" v-if="selectedVar.data.type">Type: {{ selectedVar.data.type }}</span>
             <span class="tag" v-if="selectedVar.data.dims">Dims: {{ selectedVar.data.dims }}</span>
@@ -187,22 +210,24 @@ onMounted(() => graphStore.loadGraph())
           <p class="desc-text">{{ selectedVar.data.description || 'No description available.' }}</p>
         </div>
 
-        <div class="journey-contract">
-          <strong>What this trace proves</strong>
+        <ExecutionTrace :steps="journeySteps" :selected="journeyStage" @inspect="journeyStage = $event" caption="Evidence groups, not an ordered lifecycle. Name matches do not prove a connected data-flow path." />
+        <details class="journey-contract">
+          <summary>What this trace proves—and what it doesn't</summary>
           <p>Registry identifies the field. A matching name in a routine interface or CALL argument identifies a source-level handoff, not whether that routine reads, modifies, or outputs the field. The Atlas does not infer write direction from argument order.</p>
-        </div>
+        </details>
         <div v-if="selectedScheme" class="journey-context">From Physics Explorer: <strong>{{ selectedScheme.label }}</strong>. Matching dispatch calls appear first when this field is passed there.</div>
         
-        <div class="journey-step" v-if="registryEvidence">
+        <div class="journey-step" v-if="journeyStage === 'registry'">
           <span>01</span>
           <div>
             <h3>Registry definition</h3>
             <p>Declared as a WRF state field in the indexed checkout.</p>
-            <button class="source-info" @click="openEvidence(registryEvidence)">{{ registryEvidence.path }}:{{ registryEvidence.startLine }} ↗</button>
+            <button v-if="registryEvidence" class="source-info" @click="openEvidence(registryEvidence)">Inspect definition · {{ registryEvidence.path }}:{{ registryEvidence.startLine }} ↗</button>
+            <p v-else>No Registry source anchor was resolved in this snapshot.</p>
           </div>
         </div>
 
-        <div class="journey-step">
+        <div class="journey-step" v-if="journeyStage === 'interfaces'">
           <span>02</span>
           <div>
             <h3>Routine interfaces <small>{{ referencingSubroutines.length }} name matches</small></h3>
@@ -217,7 +242,7 @@ onMounted(() => graphStore.loadGraph())
           </div>
         </div>
 
-        <div class="journey-step">
+        <div class="journey-step" v-if="journeyStage === 'calls'">
           <span>03</span>
           <div>
             <h3>Call-site handoffs <small>{{ callSites.length }} of {{ allCallSites.length }} name matches</small></h3>
@@ -259,12 +284,14 @@ onMounted(() => graphStore.loadGraph())
   height: 100%;
   display: flex;
   gap: 1.5rem;
-  padding: 1.5rem;
+  min-height: 0;
   box-sizing: border-box;
 }
 
 .sidebar {
-  width: 400px;
+  width: 300px;
+  flex-shrink: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel, rgba(15, 23, 42, 0.6));
@@ -276,13 +303,15 @@ onMounted(() => graphStore.loadGraph())
 .search-box {
   padding: 1.25rem;
   border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
-  background: var(--bg-panel-header, rgba(15, 23, 42, 0.8));
+  background: var(--bg-surface);
 }
 .search-box h2 { margin: 4px 0 15px; font-size: 1.15rem; font-weight: 620; }
 .eyebrow { margin: 0; color: var(--accent-emerald); font: 600 .61rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
 .featured-fields { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .featured-fields button { padding: 5px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-inset); color: var(--text-secondary); font: .65rem var(--font-mono); cursor: pointer; }
 .featured-fields button:hover { border-color: var(--accent-emerald); color: var(--text-primary); }
+.featured-fields button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-emerald); color: var(--text-primary); }
+.selection-hint { margin-top: 12px; color: var(--text-secondary); font-size: .7rem; }
 
 .search-input {
   width: 100%;
@@ -329,7 +358,7 @@ onMounted(() => graphStore.loadGraph())
   text-align: left;
   color: var(--text-primary);
   padding: 1rem;
-  background: var(--bg-card, rgba(30, 41, 59, 0.5));
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
   border-radius: 6px;
   cursor: pointer;
@@ -338,12 +367,12 @@ onMounted(() => graphStore.loadGraph())
 
 .var-card:hover {
   border-color: var(--accent-blue, #3b82f6);
-  background: var(--bg-card-hover, rgba(30, 41, 59, 0.8));
+  background: var(--bg-surface-hover);
 }
 
 .var-card.active {
   border-color: var(--accent-blue, #3b82f6);
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--accent-soft);
 }
 
 .var-header {
@@ -392,11 +421,12 @@ onMounted(() => graphStore.loadGraph())
 }
 
 .load-more-btn:hover {
-  background: var(--bg-card-hover, rgba(30, 41, 59, 0.8));
+  background: var(--bg-surface-hover);
 }
 
 .detail-panel {
   flex: 1;
+  min-width: 0;
   background: var(--bg-panel, rgba(15, 23, 42, 0.6));
   border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
   border-radius: 8px;
@@ -404,13 +434,15 @@ onMounted(() => graphStore.loadGraph())
 }
 
 .detail-content {
-  padding: 2rem;
+  padding: 24px;
 }
-.journey-contract { margin: 0 0 25px; padding: 13px 16px; border-left: 2px solid var(--accent-amber); background: var(--bg-inset); }
+.back-to-variables { display: block; margin-bottom: 18px; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); font-size: .76rem; cursor: pointer; }
+.journey-contract { margin: 18px 0 25px; padding: 13px 16px; border-left: 2px solid var(--accent-amber); background: var(--bg-inset); }
+.journey-contract summary { cursor: pointer; color: var(--text-secondary); font-size: .75rem; }
 .journey-contract strong { font-size: .76rem; }
 .journey-context { margin: -12px 0 25px; padding: 10px 13px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--accent-soft); color: var(--text-secondary); font-size: .69rem; }
 .journey-context strong { color: var(--text-primary); }
-.journey-contract p,.journey-step p,.package-section p { margin: 6px 0 0; color: var(--text-secondary); font-size: .76rem; line-height: 1.55; }
+.journey-contract p,.journey-step p,.package-section p { margin: 6px 0 0; color: var(--text-secondary); font-size: .8rem; line-height: 1.65; }
 .journey-step { display: grid; grid-template-columns: 30px minmax(0,1fr); gap: 12px; margin-bottom: 27px; }
 .journey-step > span { padding-top: 2px; color: var(--accent-emerald); font: 650 .69rem var(--font-mono); }
 .journey-step h3 { margin: 0; font-size: .94rem; font-weight: 620; }
@@ -419,7 +451,7 @@ onMounted(() => graphStore.loadGraph())
 .routine-list button,.handoff-list button { display: flex; width: 100%; justify-content: space-between; gap: 14px; padding: 9px 11px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); cursor: pointer; text-align: left; }
 .routine-list button:hover,.handoff-list button:hover { border-color: var(--accent-emerald); }
 .routine-list code,.handoff-chain code { font-size: .69rem; }
-.routine-list button span,.handoff-meta { color: var(--text-muted); font: .61rem var(--font-mono); overflow-wrap: anywhere; text-align: right; }
+.routine-list button span,.handoff-meta { color: var(--text-secondary); font: .69rem var(--font-mono); overflow-wrap: anywhere; text-align: right; }
 .routine-list > small { color: var(--text-muted); font-size: .65rem; }
 .handoff-list button { flex-direction: column; gap: 4px; }
 .handoff-meta { text-align: left; }
@@ -452,7 +484,7 @@ onMounted(() => graphStore.loadGraph())
 .tag {
   font-size: 0.85rem;
   padding: 0.35rem 0.75rem;
-  background: var(--bg-darker, rgba(0, 0, 0, 0.2));
+  background: var(--bg-inset);
   border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
   border-radius: 4px;
   color: var(--text-secondary, #94a3b8);
@@ -552,4 +584,6 @@ onMounted(() => graphStore.loadGraph())
   max-width: 300px;
   margin: 0;
 }
+@media (max-width: 1100px) { .sidebar { width: 250px; }.variables-view { gap: 16px; }.detail-content { padding: 19px; }.routine-list button { flex-direction: column; gap: 5px; }.routine-list button span { text-align: left; } }
+@media (max-width: 800px) { .variables-view { height: auto; min-height: 70vh; }.sidebar { width: 100%; min-height: 65vh; }.detail-panel { display: none; }.has-selection .sidebar { display: none; }.has-selection .detail-panel { display: block; width: 100%; }.detail-content { padding: 18px; }.caller-filter { flex-direction: column; align-items: start; }.caller-filter select { min-width: 0; width: 100%; }.source-info { overflow-wrap: anywhere; font-size: .76rem; } }
 </style>

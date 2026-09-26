@@ -257,6 +257,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useConfigStore } from '@/stores/configStore'
 import { useGraphStore } from '@/stores/graphStore'
+import { useEvidenceStore } from '@/stores/evidenceStore'
 import GraphView from '@/components/graph/GraphView.vue'
 import { PHYSICS_CATEGORIES } from '@/types/graph'
 import type { GraphEdge, GraphNode, SourceEvidence } from '@/types/graph'
@@ -265,6 +266,7 @@ const route = useRoute()
 const router = useRouter()
 const configStore = useConfigStore()
 const graphStore = useGraphStore()
+const evidenceStore = useEvidenceStore()
 
 const initialFocus = typeof route.query.focus === 'string' && Object.values(PHYSICS_CATEGORIES).some(c => c.namelist === route.query.focus)
   ? route.query.focus
@@ -357,8 +359,8 @@ const setFocusedValue = (value: number) => {
   showAllCalls.value = false
 }
 
-const openEvidence = (evidence: SourceEvidence) => {
-  router.push({ path: '/source', query: { file: evidence.path, line: String(evidence.startLine || 1) } })
+const openEvidence = (evidence: SourceEvidence | undefined) => {
+  if (evidence) evidenceStore.open(evidence, `${focusedNamelist.value} · source evidence`, 'exact', 'This source location supports an indexed configuration fact or call. The complete selection path may include inferred joins and additional conditions.')
 }
 
 const selectCall = (edge: GraphEdge) => {

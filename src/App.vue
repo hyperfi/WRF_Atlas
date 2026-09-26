@@ -15,6 +15,7 @@
     </main>
 
     <SearchPalette :is-open="isSearchOpen" @close="isSearchOpen = false" />
+    <EvidenceDrawer />
   </div>
 </template>
 
@@ -23,6 +24,7 @@ import { ref, onMounted } from 'vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import SearchPalette from '@/components/search/SearchPalette.vue'
+import EvidenceDrawer from '@/components/evidence/EvidenceDrawer.vue'
 import { useUiStore } from '@/stores/uiStore'
 import { useGraphStore } from '@/stores/graphStore'
 

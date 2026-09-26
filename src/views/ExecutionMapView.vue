@@ -92,6 +92,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
+import { useEvidenceStore } from '@/stores/evidenceStore'
 import type { GraphEdge, GraphNode } from '@/types/graph'
 
 type ExecutionView = 'lifecycle' | 'timestep'
@@ -99,6 +100,7 @@ interface LifecycleStage { id: string; label: string; role: string; description:
 interface TimestepStage { id: string; label: string; phase: string; physicalRole: string; description: string; context: string; scheduling: string; confidence: 'exact' | 'inferred'; parentLabel: string; path?: string; line?: number }
 
 const graphStore = useGraphStore()
+const evidenceStore = useEvidenceStore()
 const route = useRoute()
 const router = useRouter()
 const activeView = ref<ExecutionView>(route.query.view === 'timestep' ? 'timestep' : 'lifecycle')
@@ -182,7 +184,7 @@ watch(playbackDelay, () => { if (playing.value) startPlayback() })
 
 const exactCallCount = computed(() => lifecycleStages.value.filter(stage => stage.confidence === 'exact').length + timestepStages.value.filter(stage => stage.confidence === 'exact').length)
 const setView = (view: ExecutionView) => { activeView.value = view; stopPlayback(); router.replace({ query: view === 'timestep' ? { view: 'timestep' } : {} }) }
-const openSource = (path?: string, line?: number) => { if (path) router.push({ path: '/source', query: { file: path.replaceAll('\\', '/'), line: String(line || 1) } }) }
+const openSource = (path?: string, line?: number) => { if (path) evidenceStore.open({ path, startLine: line }, 'Execution source anchor', 'exact', 'An indexed definition or call-site anchor. Scheduling and enclosing conditions may remain unresolved.') }
 
 watch(() => graphStore.isLoaded, loaded => {
   if (loaded) selectedLifecycleStage.value = lifecycleStages.value[0]

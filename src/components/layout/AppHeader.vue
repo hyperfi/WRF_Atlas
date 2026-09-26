@@ -12,7 +12,7 @@
     </div>
 
     <div class="header-center">
-      <button class="search-trigger" type="button" @click="$emit('open-search')">
+      <button class="search-trigger" type="button" aria-label="Search symbols, options, fields" @click="$emit('open-search')">
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/></svg>
         <span>Search symbols, options, fields</span>
         <kbd>Ctrl K</kbd>
@@ -38,7 +38,7 @@
       </div>
       <label class="snapshot-picker" title="Indexed WRF source snapshot">
         <span>Source</span>
-        <select :value="graphStore.activeSnapshotId || ''" :disabled="graphStore.loading" @change="changeSnapshot">
+        <select aria-label="Indexed WRF source snapshot" :value="graphStore.activeSnapshotId || ''" :disabled="graphStore.loading" @change="changeSnapshot">
           <option v-for="snapshot in graphStore.snapshots" :key="snapshot.id" :value="snapshot.id">{{ snapshot.label }}</option>
         </select>
       </label>
@@ -102,7 +102,8 @@ const currentSection = computed(() => {
   display: grid;
   height: var(--header-height);
   flex: 0 0 auto;
-  grid-template-columns: 1fr minmax(280px, 440px) 1fr;
+  grid-template-columns: auto minmax(100px, 1fr) auto;
+  gap: 14px;
   align-items: center;
   padding: 0 18px;
   background: color-mix(in srgb, var(--bg-raised) 94%, transparent);
@@ -112,7 +113,7 @@ const currentSection = computed(() => {
 .header-left,
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-right { justify-content: flex-end; }
-.header-center { display: flex; justify-content: center; }
+.header-center { display: flex; justify-content: center; min-width: 0; }
 
 .icon-button {
   display: grid;
@@ -150,7 +151,7 @@ const currentSection = computed(() => {
 }
 .search-trigger:hover { border-color: var(--border-strong); color: var(--text-secondary); }
 .search-trigger svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.search-trigger span { flex: 1; }
+.search-trigger span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.62rem; }
 .snapshot-picker { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: .6rem; text-transform: uppercase; letter-spacing: .06em; }.snapshot-picker select { max-width: 170px; height: 30px; padding: 0 24px 0 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 5px; color: var(--text-secondary); font-size: .66rem; text-transform: none; letter-spacing: 0; }
 .local-source-control { position: relative; }.local-source-control button { display: flex; max-width: 150px; height: 30px; align-items: center; gap: 6px; padding: 0 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 5px; color: var(--text-muted); cursor: pointer; font-size: .66rem; }.local-source-control button:hover { border-color: var(--border-strong); color: var(--text-secondary); }.local-source-control svg { width: 14px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.3; }.local-source-control span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.local-source-control i { width: 6px; height: 6px; flex: 0 0 auto; background: var(--accent-emerald); border-radius: 50%; box-shadow: 0 0 8px color-mix(in srgb, var(--accent-emerald) 65%, transparent); }.local-source-control.connected button { border-color: color-mix(in srgb, var(--accent-emerald) 40%, var(--border-subtle)); color: var(--text-secondary); }.local-source-control p { position: absolute; top: 34px; right: 0; width: 280px; margin: 0; padding: 8px 10px; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: var(--shadow-lg); color: var(--text-secondary); font-size: .68rem; line-height: 1.45; text-transform: none; }
@@ -169,4 +170,6 @@ kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--b
   .snapshot-picker select { max-width: 125px; }
   .local-source-control span { display: none; }
 }
+@media (max-width: 1250px) { .location-root,.location-separator { display: none; }.search-trigger kbd { display: none; }.local-source-control span { display: none; }.snapshot-picker span { display: none; }.snapshot-picker select { max-width: 140px; } }
+@media (max-width: 800px) { .app-header { display: flex; flex-wrap: wrap; height: auto; min-height: var(--header-height); gap: 8px; padding: 10px; }.header-left { flex: 0 0 auto; }.header-center { flex: 1; padding: 0; }.header-right { flex: 1 0 100%; justify-content: flex-start; flex-wrap: wrap; gap: 6px; }.mode-toggle button { font-size: .62rem; padding: 4px; }.snapshot-picker select { max-width: 95px; }.icon-button { width: 30px; height: 30px; } }
 </style>

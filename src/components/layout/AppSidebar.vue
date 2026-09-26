@@ -12,6 +12,7 @@
           <small>Source intelligence</small>
         </span>
       </router-link>
+      <button v-if="!uiStore.sidebarCollapsed" class="mobile-close" aria-label="Close navigation" @click="uiStore.toggleSidebar">✕</button>
     </div>
 
     <div v-if="!uiStore.sidebarCollapsed" class="nav-section-label">Explore</div>
@@ -49,12 +50,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useUiStore } from '@/stores/uiStore'
 import { useGraphStore } from '@/stores/graphStore'
 
 const uiStore = useUiStore()
 const graphStore = useGraphStore()
+const route = useRoute()
+watch(() => route.path, () => { if (window.matchMedia('(max-width: 800px)').matches) uiStore.sidebarCollapsed = true })
 
 const navigation = [
   { to: '/', label: 'Overview', glyph: 'OV' },
@@ -89,6 +93,12 @@ const shortCommit = computed(() => {
 }
 
 .app-sidebar.collapsed { width: var(--sidebar-collapsed); }
+.mobile-close { display: none; }
+@media (max-width: 800px) {
+  .app-sidebar { position: absolute; inset: 0 auto 0 0; height: 100dvh; }
+  .app-sidebar:not(.collapsed) { box-shadow: 16px 0 45px #0006; }
+  .mobile-close { display: block; padding: 5px 8px; margin-left: auto; margin-right: 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); cursor: pointer; }
+}
 
 .sidebar-header {
   display: flex;
