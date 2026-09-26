@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from indexer.fortran_parser import parse_fortran_file, preprocess_lines
+from indexer.fortran_parser import parse_fortran_file, preprocess_lines, direct_argument_name
 from indexer.graph_builder import KnowledgeGraph, _link_execution_phases_from_calls
 from indexer.registry_parser import parse_registry
 
@@ -78,6 +78,69 @@ END SUBROUTINE first_rk_step_part1
         self.assertEqual(targets, ["wrf_debug", "radiation_driver"])
         radiation_call = result["calls"][1]
         self.assertEqual(radiation_call["line"], 3)
+
+    def test_call_arguments_keep_nested_commas_and_reject_expressions(self):
+        source = """\
+SUBROUTINE surface_driver()
+  CALL lsm(grid%hfx, tsk(i,j), label='rain, snow', value=max(a,b), qfx + 1)
+END SUBROUTINE surface_driver
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "driver.F"
+            path.write_text(source, encoding="utf-8")
+            call = parse_fortran_file(str(path))["calls"][0]
+
+        self.assertEqual(call["arguments"], [
+            "grid%hfx", "tsk(i,j)", "label='rain, snow'", "value=max(a,b)", "qfx + 1"
+        ])
+        self.assertEqual(direct_argument_name(call["arguments"][0]), "hfx")
+        self.assertEqual(direct_argument_name(call["arguments"][1]), "tsk")
+        # Syntax alone cannot distinguish an array reference from a function;
+        # the graph builder additionally requires a Registry state-name match.
+        self.assertEqual(direct_argument_name(call["arguments"][3]), "max")
+        self.assertIsNone(direct_argument_name(call["arguments"][4]))
+
+    def test_physics_suite_setting_keeps_override_condition_and_line(self):
+        source = """\
+MODULE checks
+CONTAINS
+SUBROUTINE setup_physics_suite
+  SELECT CASE (trim(physics_suite_lowercase))
+  CASE ('conus')
+    IF (model_config_rec % mp_physics(i) == -1) model_config_rec % mp_physics(i) = THOMPSON
+  END SELECT
+END SUBROUTINE setup_physics_suite
+END MODULE checks
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "checks.F"
+            path.write_text(source, encoding="utf-8")
+            settings = parse_fortran_file(str(path))["physics_suites"]
+
+        self.assertEqual(settings, [{
+            "suite": "conus", "option": "mp_physics", "constant": "thompson",
+            "line": 6, "end_line": 6,
+        }])
+
+    def test_two_option_physics_requirement_preserves_source_condition(self):
+        source = """\
+SUBROUTINE check_nml()
+ IF ((model_config_rec%bl_pbl_physics(i) .EQ. TEMFPBLSCHEME) .AND. &
+     (model_config_rec%sf_sfclay_physics(i) .NE. TEMFSFCSCHEME)) THEN
+   count_fatal_error = count_fatal_error + 1
+ END IF
+END SUBROUTINE check_nml
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "checks.F"
+            path.write_text(source, encoding="utf-8")
+            rules = parse_fortran_file(str(path))["physics_constraints"]
+
+        self.assertEqual(rules, [{
+            "source_option": "bl_pbl_physics", "source_constant": "temfpblscheme",
+            "required_option": "sf_sfclay_physics", "required_constant": "temfsfcscheme",
+            "line": 2, "end_line": 3,
+        }])
 
 
 class RegistryParserTests(unittest.TestCase):

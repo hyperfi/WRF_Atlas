@@ -155,6 +155,17 @@ export const useGraphStore = defineStore('graph', () => {
     return edgesByType.value.get(type) || []
   }
 
+  const getCallSitesForField = (fieldName: string): GraphEdge[] => {
+    const normalized = fieldName.toLowerCase()
+    return getEdgesOfType('CALLS').filter(edge =>
+      edge.data?.state_args?.some((arg: { name: string }) => arg.name === normalized))
+  }
+
+  const getSuiteSettings = (suiteName: string): GraphEdge[] => {
+    return getEdgesFrom(`physics_suite:${suiteName.toLowerCase()}`)
+      .filter(edge => edge.type === 'SETS_OPTION')
+  }
+
   // ── Physics query helpers ──
 
   /**
@@ -349,6 +360,8 @@ export const useGraphStore = defineStore('graph', () => {
     getEdgesFrom,
     getEdgesTo,
     getEdgesOfType,
+    getCallSitesForField,
+    getSuiteSettings,
     getPackagesForNamelist,
     getActiveSubroutines,
     getExecutionPath,

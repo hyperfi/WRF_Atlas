@@ -15,6 +15,64 @@
     <div v-if="!graphStore.isLoaded" class="loading-panel surface-panel">Reading configuration and dispatch indexes…</div>
 
     <template v-else>
+      <section class="namelist-import surface-panel">
+        <div class="import-heading">
+          <div>
+            <p class="eyebrow">Configuration workspace</p>
+            <h2>{{ configStore.namelistText === null ? 'Explore an example, or load your namelist' : 'Loaded namelist.input' }}</h2>
+            <p>{{ configStore.namelistText === null ? 'The initial selections are an illustrative example, not WRF defaults.' : 'Edits to the controls update this local working copy. Nothing is uploaded or written to your WRF checkout.' }}</p>
+          </div>
+          <div class="import-actions">
+            <input ref="namelistFileInput" type="file" accept=".input,.txt,.nml,.namelist,text/plain" hidden @change="loadNamelistFile" />
+            <button @click="namelistFileInput?.click()">Load file</button>
+            <button @click="showNamelistEditor = !showNamelistEditor">{{ showNamelistEditor ? 'Hide text' : 'Paste / edit text' }}</button>
+            <button v-if="configStore.namelistText !== null" @click="configStore.clearNamelist(); showNamelistEditor = false">Clear</button>
+          </div>
+        </div>
+        <textarea
+          v-if="showNamelistEditor"
+          class="namelist-editor"
+          :value="configStore.namelistText ?? ''"
+          placeholder="Paste the contents of namelist.input here. The Atlas reads it locally in your browser."
+          spellcheck="false"
+          aria-label="Namelist input text"
+          @input="configStore.setNamelistText(($event.target as HTMLTextAreaElement).value, false)"
+        ></textarea>
+        <div v-if="configStore.namelistText !== null" class="import-status">
+          <label>Domain
+            <select v-model.number="configStore.activeDomain">
+              <option v-for="domain in configStore.maxDomain" :key="domain" :value="domain">d{{ String(domain).padStart(2, '0') }}</option>
+            </select>
+          </label>
+          <span>{{ configStore.maxDomain }} domain{{ configStore.maxDomain === 1 ? '' : 's' }} detected</span>
+          <span>Physics suite: <code>{{ configStore.physicsSuite || 'none / unspecified' }}</code></span>
+          <span v-if="configStore.parsedNamelist?.warnings.length" class="parse-warning">{{ configStore.parsedNamelist.warnings[0] }}</span>
+        </div>
+        <div v-if="configStore.namelistText !== null && suiteSettings.length" class="suite-summary">
+          <strong>Suite resolution for d{{ String(configStore.activeDomain).padStart(2, '0') }}</strong>
+          <p>WRF fills an option from this suite only when its configured value is <code>-1</code>; an explicit value takes precedence. Each row below is joined to this checkout's Registry value and suite-setting line.</p>
+          <div class="suite-rows">
+            <button v-for="edge in suiteSettings" :key="edge.target" @click="openEvidence(edge.data.evidence?.[0])">
+              <code>{{ edge.target.replace('namelist:', '') }}</code>
+              <span>{{ configStore.getConfigOrigin(edge.target.replace('namelist:', '')) === 'namelist' ? 'explicit override' : 'from suite' }}</span>
+              <strong>{{ configStore.getConfig(edge.target.replace('namelist:', '')) ?? '?' }}</strong>
+              <small>source ↗</small>
+            </button>
+          </div>
+        </div>
+        <div v-if="configStore.namelistText !== null" class="constraint-summary">
+          <strong>Indexed combination checks · d{{ String(configStore.activeDomain).padStart(2, '0') }}</strong>
+          <p>These are source-extracted two-option checks, not a replacement for WRF's full namelist validation.</p>
+          <div v-if="constraintWarnings.length" class="constraint-list">
+            <button v-for="(edge, i) in constraintWarnings" :key="i" @click="openEvidence(edge.data.evidence?.[0])">
+              <code>{{ edge.source.replace('namelist:', '') }} = {{ edge.data.value }}</code>
+              requires <code>{{ edge.target.replace('namelist:', '') }} = {{ edge.data.required_value }}</code>
+              <span>Current: {{ configStore.getConfig(edge.target.replace('namelist:', '')) }} · source ↗</span>
+            </button>
+          </div>
+          <span v-else class="constraint-clear">No mismatch found among {{ indexedConstraints.length }} indexed two-option checks for this domain.</span>
+        </div>
+      </section>
       <section class="decision-bar surface-panel">
         <div class="decision-question">
           <span class="decision-index">01</span>
@@ -51,9 +109,10 @@
             <label :for="focusedNamelist"><code>{{ focusedNamelist }}</code></label>
             <select
               :id="focusedNamelist"
-              :value="selectedValue"
+              :value="selectedValue ?? ''"
               @change="setFocusedValue(Number(($event.target as HTMLSelectElement).value))"
             >
+              <option v-if="selectedValue === null" value="" disabled>Not resolved from loaded namelist</option>
               <option v-for="option in focusedOptions" :key="option.value" :value="Number(option.value)">
                 {{ option.value }} · {{ option.description }}
               </option>
@@ -61,14 +120,18 @@
           </div>
 
           <div class="namelist-snippet">
-            <div class="snippet-header"><span>namelist.input</span><span>&amp;physics</span></div>
-            <pre><span>{{ focusedNamelist }}</span> = <strong>{{ selectedValue }}</strong>,</pre>
+            <div class="snippet-header"><span>{{ configStore.namelistText === null ? 'Example selection' : `namelist.input · d${String(configStore.activeDomain).padStart(2, '0')}` }}</span><span>&amp;physics</span></div>
+            <pre><span>{{ focusedNamelist }}</span> = <strong>{{ configStore.namelistText === null ? selectedValue : (configStore.getRawConfig(focusedNamelist) ?? 'not specified') }}</strong><template v-if="configStore.getConfigOrigin(focusedNamelist) === 'suite'">  → effective {{ selectedValue }} from suite</template></pre>
           </div>
 
           <dl class="selection-facts">
             <div>
               <dt>Registry package</dt>
               <dd><code>{{ activePackage?.data?.package_name || activePackage?.label || 'Unresolved' }}</code></dd>
+            </div>
+            <div>
+              <dt>Value origin</dt>
+              <dd>{{ originLabel }}</dd>
             </div>
             <div>
               <dt>Runtime driver</dt>
@@ -90,7 +153,7 @@
           <div class="workspace-heading">
             <div>
               <p class="eyebrow">Active path</p>
-              <h2>{{ focusedNamelist }} = {{ selectedValue }}</h2>
+              <h2>{{ focusedNamelist }} = {{ selectedValue ?? 'unresolved' }}</h2>
             </div>
             <div class="workspace-summary">
               <button v-if="dispatchCalls.length > focusedDispatchCalls.length" @click="showAllCalls = !showAllCalls">
@@ -110,8 +173,8 @@
             />
           </div>
           <div v-else class="unresolved-state">
-            <strong>No implementation branch was resolved for this value.</strong>
-            <p>The Registry option is indexed, but the current parser could not join it to a matching driver CASE. The Atlas will not invent that relationship.</p>
+            <strong>{{ selectedValue === null ? 'No effective value was resolved for this domain.' : 'No implementation branch was resolved for this value.' }}</strong>
+            <p>{{ selectedValue === null ? 'Check the loaded namelist or select a value. The Atlas will not substitute an arbitrary scheme.' : 'The Registry option is indexed, but the current parser could not join it to a matching driver CASE. The Atlas will not invent that relationship.' }}</p>
           </div>
         </main>
 
@@ -126,11 +189,11 @@
 
           <div class="reasoning-chain">
             <article class="reason-step">
-              <span class="reason-marker exact">1</span>
+              <span class="reason-marker" :class="selectedValue === null ? 'unresolved' : 'exact'">1</span>
               <div>
-                <span class="confidence-label exact">Exact · Registry</span>
-                <h3>The selected value satisfies a package predicate.</h3>
-                <code>{{ focusedNamelist }} == {{ selectedValue }} → {{ activePackage?.data?.package_name || activePackage?.label }}</code>
+                <span class="confidence-label" :class="selectedValue === null ? 'unresolved' : 'exact'">{{ selectedValue === null ? 'Unresolved · no selection' : 'Exact · Registry' }}</span>
+                <h3>{{ selectedValue === null ? 'No effective value is available for this domain.' : 'The selected value satisfies a package predicate.' }}</h3>
+                <code v-if="selectedValue !== null">{{ focusedNamelist }} == {{ selectedValue }} → {{ activePackage?.data?.package_name || activePackage?.label }}</code>
                 <button v-if="registryEvidence" @click="openEvidence(registryEvidence)">Open Registry evidence <span>↗</span></button>
               </div>
             </article>
@@ -146,8 +209,8 @@
                 </template>
                 <template v-else>
                   <span class="confidence-label unresolved">Unresolved · runtime join</span>
-                  <h3>No standalone driver dispatch has been joined.</h3>
-                  <p>This selector is handled through conditional logic embedded in other physics branches. The Registry mapping is exact; the Atlas does not manufacture a CASE edge.</p>
+                  <h3>{{ selectedValue === null ? 'No branch can be selected yet.' : 'No standalone driver dispatch has been joined.' }}</h3>
+                  <p>{{ selectedValue === null ? 'Provide a value in the namelist or choose one above to trace a code path.' : 'The Registry mapping is indexed, but this value has no proven standalone driver CASE edge in the current graph.' }}</p>
                 </template>
               </div>
             </article>
@@ -209,17 +272,46 @@ const initialFocus = typeof route.query.focus === 'string' && Object.values(PHYS
 const focusedNamelist = ref(initialFocus)
 const selectedNode = ref<GraphNode | null>(null)
 const showAllCalls = ref(false)
+const showNamelistEditor = ref(false)
+const namelistFileInput = ref<HTMLInputElement | null>(null)
+
+const loadNamelistFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  configStore.setNamelistText(await file.text())
+  showNamelistEditor.value = true
+  input.value = ''
+}
 
 const focusedCategory = computed(() => Object.values(PHYSICS_CATEGORIES).find(category => category.namelist === focusedNamelist.value))
 const focusedNamelistNode = computed(() => graphStore.getNodeById(`namelist:${focusedNamelist.value}`))
 const focusedOptions = computed(() => graphStore.getPackagesForNamelist(focusedNamelist.value))
-const selectedValue = computed(() => {
-  const configured = Number(configStore.getConfig(focusedNamelist.value))
+const suiteSettings = computed(() => configStore.physicsSuite ? graphStore.getSuiteSettings(configStore.physicsSuite) : [])
+const indexedConstraints = computed(() => graphStore.getEdgesOfType('REQUIRES_OPTION'))
+const constraintWarnings = computed(() => indexedConstraints.value.filter(edge => {
+  const selected = configStore.getConfig(edge.source.replace('namelist:', ''))
+  const required = configStore.getConfig(edge.target.replace('namelist:', ''))
+  return selected !== undefined && required !== undefined &&
+    String(selected) === String(edge.data.value) && String(required) !== String(edge.data.required_value)
+}))
+const selectedValue = computed<number | null>(() => {
+  const raw = configStore.getConfig(focusedNamelist.value)
+  if (raw === undefined || raw === null) return configStore.namelistText === null
+    ? Number(focusedOptions.value[0]?.value ?? 0)
+    : null
+  const configured = Number(raw)
   if (focusedOptions.value.some(option => Number(option.value) === configured)) return configured
-  return Number(focusedOptions.value[0]?.value ?? 0)
+  return configStore.namelistText === null ? Number(focusedOptions.value[0]?.value ?? 0) : null
 })
-const activePackage = computed(() => focusedOptions.value.find(option => Number(option.value) === selectedValue.value)?.node)
-const executionPath = computed(() => graphStore.getExecutionPath(focusedNamelist.value, String(selectedValue.value)))
+const originLabel = computed(() => ({
+  example: 'Illustrative example', namelist: 'Explicit namelist value', suite: `Physics suite: ${configStore.physicsSuite}`,
+  'registry-default': 'Registry default', unresolved: 'Not resolved',
+})[configStore.getConfigOrigin(focusedNamelist.value)])
+const activePackage = computed(() => selectedValue.value === null ? undefined : focusedOptions.value.find(option => Number(option.value) === selectedValue.value)?.node)
+const executionPath = computed(() => selectedValue.value === null
+  ? { nodes: [] as GraphNode[], edges: [] as GraphEdge[] }
+  : graphStore.getExecutionPath(focusedNamelist.value, String(selectedValue.value)))
 const pathNodes = computed(() => executionPath.value.nodes)
 const pathEdges = computed(() => executionPath.value.edges)
 const dispatchCalls = computed(() => pathEdges.value.filter(edge => edge.type === 'CALLS'))
@@ -252,7 +344,7 @@ const shortCategoryLabel = (label: string) => label
 const focusCategory = (namelist: string) => {
   focusedNamelist.value = namelist
   const configured = Number(configStore.getConfig(namelist))
-  if (!focusedOptions.value.some(option => Number(option.value) === configured) && focusedOptions.value[0]) {
+  if (configStore.namelistText === null && !focusedOptions.value.some(option => Number(option.value) === configured) && focusedOptions.value[0]) {
     configStore.setConfig(namelist, Number(focusedOptions.value[0].value))
   }
   selectedNode.value = null
@@ -294,12 +386,17 @@ const nodeExplanation = (node: GraphNode) => {
 }
 
 watch(focusedNamelist, namelist => {
-  router.replace({ query: { ...route.query, focus: namelist, value: String(selectedValue.value) } })
+  router.replace({ query: { ...route.query, focus: namelist, value: selectedValue.value === null ? undefined : String(selectedValue.value) } })
 })
 
 watch(() => [route.query.focus, route.query.value], ([focus, value]) => {
   if (typeof focus !== 'string' || !Object.values(PHYSICS_CATEGORIES).some(category => category.namelist === focus)) return
   focusedNamelist.value = focus
+  if (configStore.namelistText !== null) {
+    selectedNode.value = null
+    showAllCalls.value = false
+    return
+  }
   const requested = Number(value)
   if (Number.isFinite(requested) && focusedOptions.value.some(option => Number(option.value) === requested)) {
     configStore.setConfig(focus, requested)
@@ -312,7 +409,7 @@ watch(() => [route.query.focus, route.query.value], ([focus, value]) => {
 
 onMounted(async () => {
   await graphStore.loadGraph()
-  if (typeof route.query.value === 'string') {
+  if (configStore.namelistText === null && typeof route.query.value === 'string') {
     const queryValue = Number(route.query.value)
     if (Number.isFinite(queryValue) && focusedOptions.value.some(option => Number(option.value) === queryValue)) {
       configStore.setConfig(focusedNamelist.value, queryValue)
@@ -323,6 +420,40 @@ onMounted(async () => {
 
 <style scoped>
 .namelist-view { display: flex; width: 100%; max-width: 1540px; margin: 0 auto; flex-direction: column; gap: 18px; }
+.namelist-import { padding: 16px 19px; }
+.import-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; }
+.import-heading h2 { margin-top: 5px; font-size: .98rem; }
+.import-heading p:last-child { margin-top: 5px; color: var(--text-muted); font-size: .68rem; line-height: 1.5; }
+.import-actions { display: flex; flex-wrap: wrap; gap: 7px; flex-shrink: 0; }
+.import-actions button { padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); color: var(--text-secondary); cursor: pointer; font-size: .65rem; }
+.import-actions button:hover { border-color: var(--accent-emerald); color: var(--text-primary); }
+.namelist-editor { display: block; width: 100%; min-height: 190px; margin-top: 14px; padding: 12px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 4px; outline: none; background: var(--bg-inset); color: var(--text-primary); font: .7rem/1.55 var(--font-mono); }
+.namelist-editor:focus { border-color: var(--accent-emerald); }
+.import-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 17px; margin-top: 13px; color: var(--text-muted); font-size: .65rem; }
+.import-status label { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); }
+.import-status select { padding: 5px 8px; border: 1px solid var(--border-strong); background: var(--bg-inset); color: var(--text-primary); }
+.import-status code { color: var(--text-primary); }
+.import-status .parse-warning { color: var(--accent-amber); }
+.suite-summary { margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--border-subtle); }
+.suite-summary > strong { font-size: .72rem; }
+.suite-summary > p { max-width: 900px; margin: 5px 0 10px; color: var(--text-muted); font-size: .65rem; line-height: 1.55; }
+.suite-summary > p code { color: var(--accent-amber); }
+.suite-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 5px; }
+.suite-rows button { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; padding: 8px 9px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-inset); color: var(--text-secondary); cursor: pointer; text-align: left; }
+.suite-rows button:hover { border-color: var(--accent-emerald); }
+.suite-rows code { color: var(--text-primary); font-size: .61rem; }
+.suite-rows span { color: var(--text-muted); font-size: .58rem; }
+.suite-rows strong { color: var(--accent-emerald); font: 650 .66rem var(--font-mono); }
+.suite-rows small { color: var(--text-muted); font-size: .55rem; text-align: right; }
+.constraint-summary { margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
+.constraint-summary > strong { font-size: .71rem; }
+.constraint-summary > p { margin: 4px 0 8px; color: var(--text-muted); font-size: .63rem; }
+.constraint-clear { color: var(--text-muted); font-size: .64rem; }
+.constraint-list { display: grid; gap: 5px; }
+.constraint-list button { padding: 9px 10px; border: 1px solid color-mix(in srgb,var(--accent-amber) 35%,var(--border-subtle)); border-radius: 4px; background: color-mix(in srgb,var(--accent-amber) 7%,var(--bg-inset)); color: var(--text-secondary); cursor: pointer; text-align: left; font-size: .66rem; }
+.constraint-list button:hover { border-color: var(--accent-amber); }
+.constraint-list code { color: var(--accent-amber); font-size: .64rem; }
+.constraint-list span { margin-left: 8px; color: var(--text-muted); }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding: 4px 2px 8px; }
 .page-header h1 { margin-top: 7px; font-size: 2rem; font-weight: 580; }
 .page-header > div > p:last-child { max-width: 730px; margin-top: 8px; color: var(--text-secondary); font-size: 0.83rem; }

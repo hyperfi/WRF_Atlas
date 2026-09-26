@@ -62,6 +62,11 @@ RE_NL_GET = re.compile(r'nl_get_(\w+)', re.I)
 
 # Named label on SELECT CASE
 RE_NAMED_END_SELECT = re.compile(r'^\s*END\s+SELECT\s+(\w+)', re.I)
+RE_SUITE_ASSIGNMENT = re.compile(
+    r'\bIF\s*\(\s*model_config_rec\s*%\s*(\w+)\s*\(i\)\s*==\s*-1\s*\)\s*'
+    r'model_config_rec\s*%\s*(\w+)\s*\(i\)\s*=\s*(\w+)', re.I)
+RE_OPTION_COMPARISON = re.compile(
+    r'model_config_rec\s*%\s*(\w+)\s*\(i\)\s*\.(EQ|NE)\.\s*(\w+)', re.I)
 
 
 @dataclass
@@ -234,6 +239,72 @@ def _extract_config_var(expression: str) -> Optional[str]:
     return None
 
 
+def _call_arguments(statement: str, after_name: int) -> List[str]:
+    """Split a CALL argument list without splitting nested expressions or strings."""
+    index = after_name
+    while index < len(statement) and statement[index].isspace():
+        index += 1
+    if index >= len(statement) or statement[index] != '(':
+        return []
+    index += 1
+    start = index
+    depth = 1
+    quote = None
+    args = []
+    while index < len(statement):
+        ch = statement[index]
+        if quote:
+            if ch == quote:
+                if index + 1 < len(statement) and statement[index + 1] == quote:
+                    index += 1
+                else:
+                    quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                item = statement[start:index].strip()
+                if item:
+                    args.append(item)
+                return args
+        elif ch == ',' and depth == 1:
+            args.append(statement[start:index].strip())
+            start = index + 1
+        index += 1
+    return []  # Incomplete/preprocessor-dependent call: do not invent arguments.
+
+
+def direct_argument_name(argument: str) -> Optional[str]:
+    """Return the name for a directly passed scalar/array field, not an expression."""
+    text = argument.strip()
+    keyword = re.match(r'^\w+\s*=\s*(.*)$', text)
+    if keyword:
+        text = keyword.group(1).strip()
+    match = re.match(r'^(?:\w+\s*%\s*)?(\w+)\s*(.*)$', text)
+    if not match:
+        return None
+    tail = match.group(2).strip()
+    if tail:
+        if not (tail.startswith('(') and tail.endswith(')')):
+            return None
+        depth = 0
+        for position, char in enumerate(tail):
+            if char == '(':
+                depth += 1
+            elif char == ')':
+                depth -= 1
+                if depth == 0 and position != len(tail) - 1:
+                    return None
+            if depth < 0:
+                return None
+        if depth != 0:
+            return None
+    return match.group(1).lower()
+
+
 def parse_fortran_file(filepath: str) -> Dict[str, Any]:
     """
     Parse a single Fortran file and extract structural information.
@@ -253,7 +324,9 @@ def parse_fortran_file(filepath: str) -> Dict[str, Any]:
         'calls': [],
         'includes': [],
         'select_cases': [],
-        'config_refs': []
+        'config_refs': [],
+        'physics_suites': [],
+        'physics_constraints': []
     }
     
     try:
@@ -271,6 +344,7 @@ def parse_fortran_file(filepath: str) -> Dict[str, Any]:
     
     # SELECT CASE tracking
     select_stack: List[SelectCaseBlock] = []
+    current_suite: Optional[str] = None
     
     for ll in logical_lines:
         text = ll.text
@@ -301,6 +375,8 @@ def parse_fortran_file(filepath: str) -> Dict[str, Any]:
             
             end_scope = RE_END_SCOPE.match(text)
             if end_scope:
+                if end_scope.group(1).lower() == 'subroutine' and current_scope == 'setup_physics_suite':
+                    current_suite = None
                 if scope_stack:
                     scope_stack.pop()
                 current_scope = scope_stack[-1][1] if scope_stack else None
@@ -321,6 +397,22 @@ def parse_fortran_file(filepath: str) -> Dict[str, Any]:
                     'end_line': end
                 })
                 continue
+
+            if current_scope == 'setup_physics_suite':
+                suite_case = re.match(r"^\s*CASE\s*\(\s*['\"]([\w-]+)['\"]\s*\)", text, re.I)
+                if suite_case:
+                    current_suite = suite_case.group(1).lower()
+                elif re.match(r'^\s*CASE\s+DEFAULT\b', text, re.I):
+                    current_suite = None
+                suite_setting = RE_SUITE_ASSIGNMENT.search(text)
+                if current_suite and suite_setting and suite_setting.group(1).lower() == suite_setting.group(2).lower():
+                    result['physics_suites'].append({
+                        'suite': current_suite,
+                        'option': suite_setting.group(1).lower(),
+                        'constant': suite_setting.group(3).lower(),
+                        'line': start,
+                        'end_line': end,
+                    })
             
             # ─── MODULE ───
             m = RE_MODULE.match(text)
@@ -431,6 +523,23 @@ def parse_fortran_file(filepath: str) -> Dict[str, Any]:
             
             # ─── CALL (must come after CASE to be recorded within case blocks) ───
             structural_text = _mask_string_literals(text)
+            upper_statement = structural_text.upper()
+            if (re.match(r'^\s*(?:ELSE)?IF\s*\(', upper_statement)
+                    and upper_statement.count('.AND.') == 1
+                    and '.OR.' not in upper_statement
+                    and upper_statement.count('MODEL_CONFIG_REC') == 2):
+                comparisons = RE_OPTION_COMPARISON.findall(structural_text)
+                equal = next((entry for entry in comparisons if entry[1].upper() == 'EQ'), None)
+                unequal = next((entry for entry in comparisons if entry[1].upper() == 'NE'), None)
+                if len(comparisons) == 2 and equal and unequal and equal[0].lower() != unequal[0].lower():
+                    result['physics_constraints'].append({
+                        'source_option': equal[0].lower(),
+                        'source_constant': equal[2].lower(),
+                        'required_option': unequal[0].lower(),
+                        'required_constant': unequal[2].lower(),
+                        'line': start,
+                        'end_line': end,
+                    })
             for call_match in RE_CALL.finditer(structural_text):
                 sub_name = call_match.group(1).lower()
                 
@@ -440,6 +549,7 @@ def parse_fortran_file(filepath: str) -> Dict[str, Any]:
                     'caller_type': scope_stack[-1][0] if scope_stack else None,
                     'line': start,
                     'end_line': end,
+                    'arguments': _call_arguments(text, call_match.end()),
                 }
                 
                 # If inside a SELECT CASE, attach dispatch context

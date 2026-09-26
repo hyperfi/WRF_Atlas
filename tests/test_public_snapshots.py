@@ -33,6 +33,43 @@ class PublicSnapshotTests(unittest.TestCase):
                 self.assertIsNone(metadata["source_root"])
                 self.assertEqual(len(metadata["submodules"]), submodule_count)
 
+    def test_public_snapshots_include_source_backed_suite_constraints_and_field_handoffs(self):
+        for filename in ("wrf-v4.7.1.json", "wrf-v4.8.0.json"):
+            with self.subTest(filename=filename):
+                graph = json.loads((SNAPSHOT_ROOT / filename).read_text(encoding="utf-8"))
+                edges = graph["edges"]
+
+                conus_mp = next(
+                    edge for edge in edges
+                    if edge["type"] == "SETS_OPTION"
+                    and edge["source"] == "physics_suite:conus"
+                    and edge["target"] == "namelist:mp_physics"
+                )
+                self.assertEqual(conus_mp["data"]["value"], "8")
+                self.assertEqual(conus_mp["data"]["confidence"], "inferred")
+                self.assertTrue(conus_mp["data"]["evidence"])
+
+                temf_constraint = next(
+                    edge for edge in edges
+                    if edge["type"] == "REQUIRES_OPTION"
+                    and edge["source"] == "namelist:bl_pbl_physics"
+                    and edge["target"] == "namelist:sf_sfclay_physics"
+                )
+                self.assertEqual(temf_constraint["data"]["value"], "10")
+                self.assertEqual(temf_constraint["data"]["required_value"], "10")
+                self.assertTrue(temf_constraint["data"]["evidence"])
+
+                handoffs = [
+                    edge for edge in edges
+                    if edge["type"] == "CALLS" and edge["data"].get("state_args")
+                ]
+                self.assertTrue(handoffs)
+                self.assertTrue(all(edge["data"]["evidence"] for edge in handoffs))
+                self.assertTrue(all(
+                    "direction" not in argument
+                    for edge in handoffs for argument in edge["data"]["state_args"]
+                ))
+
 
 if __name__ == "__main__":
     unittest.main()

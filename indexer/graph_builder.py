@@ -19,11 +19,11 @@ import re
 
 try:
     from .config import FORTRAN_EXTENSIONS, PRIORITY_FILES, REGISTRY_MAIN_FILES
-    from .fortran_parser import parse_fortran_file
+    from .fortran_parser import parse_fortran_file, direct_argument_name
     from .registry_parser import parse_registry
 except ImportError:
     from config import FORTRAN_EXTENSIONS, PRIORITY_FILES, REGISTRY_MAIN_FILES
-    from fortran_parser import parse_fortran_file
+    from fortran_parser import parse_fortran_file, direct_argument_name
     from registry_parser import parse_registry
 
 logger = logging.getLogger(__name__)
@@ -203,6 +203,11 @@ def build_graph(wrf_root: str, output_path: str, source_config: Optional[Dict[st
     # ════════════════════════════════════════════
     logger.info("Parsing Registry...")
     registry_data = parse_registry(wrf_root)
+    state_names = {state['name'].lower() for state in registry_data['states']}
+    package_values = {
+        (pkg['namelist_var'].lower(), pkg['package_name'].lower()): str(pkg['value'])
+        for pkg in registry_data['packages']
+    }
     
     # Create namelist option nodes
     for rconf in registry_data['rconfig']:
@@ -396,6 +401,19 @@ def build_graph(wrf_root: str, output_path: str, source_config: Optional[Dict[st
                     }],
                     'confidence': 'exact'
                 }
+                state_args = []
+                for position, argument in enumerate(call.get('arguments', []), 1):
+                    name = direct_argument_name(argument)
+                    if name in state_names:
+                        state_args.append({
+                            'name': name,
+                            'argument': argument,
+                            'position': position,
+                        })
+                if state_args:
+                    # This proves only that a matching name is passed at the
+                    # call site. It does not establish read/write direction.
+                    call_data['state_args'] = state_args
                 
                 # If this call is inside a physics dispatch SELECT CASE
                 dispatch_var = call.get('dispatch_var')
@@ -419,6 +437,48 @@ def build_graph(wrf_root: str, output_path: str, source_config: Optional[Dict[st
                         })
                 
                 kg.add_edge(caller_id, target_id, 'CALLS', call_data)
+
+            for setting in f_data.get('physics_suites', []):
+                suite_id = f"physics_suite:{setting['suite']}"
+                option_id = f"namelist:{setting['option']}"
+                if option_id not in kg.nodes:
+                    continue
+                kg.add_node(suite_id, 'physics_suite', setting['suite'], {
+                    'source_file': rel_path,
+                    'source_line': setting['line'],
+                })
+                kg.add_edge(suite_id, option_id, 'SETS_OPTION', {
+                    'constant': setting['constant'],
+                    'value': package_values.get((setting['option'], setting['constant'])),
+                    'condition': f"{setting['option']} == -1; explicit values override the suite",
+                    'evidence': [{
+                        'path': rel_path,
+                        'startLine': setting['line'],
+                        'endLine': setting['end_line'],
+                    }],
+                    'confidence': 'inferred',
+                })
+
+            for rule in f_data.get('physics_constraints', []):
+                source_id = f"namelist:{rule['source_option']}"
+                target_id = f"namelist:{rule['required_option']}"
+                source_value = package_values.get((rule['source_option'], rule['source_constant']))
+                required_value = package_values.get((rule['required_option'], rule['required_constant']))
+                if source_id not in kg.nodes or target_id not in kg.nodes or source_value is None or required_value is None:
+                    continue
+                kg.add_edge(source_id, target_id, 'REQUIRES_OPTION', {
+                    'value': source_value,
+                    'required_value': required_value,
+                    'source_constant': rule['source_constant'],
+                    'required_constant': rule['required_constant'],
+                    'condition': f"{rule['source_option']}={source_value} requires {rule['required_option']}={required_value}",
+                    'evidence': [{
+                        'path': rel_path,
+                        'startLine': rule['line'],
+                        'endLine': rule['end_line'],
+                    }],
+                    'confidence': 'inferred',
+                })
             
             # USE edges
             for use in f_data['use_stmts']:

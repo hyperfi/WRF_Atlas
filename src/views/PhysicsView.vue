@@ -87,7 +87,23 @@ const selectedSchemeDetails = computed(() => {
     .slice(0, 5)
   const packageNode = path.nodes.find(node => node.type === 'registry_package')
   const driverName = graphStore.getNodeById(`namelist:${selector}`)?.data?.driver as string | undefined
-  return { registry, packageNode, driverName, calls, conditionalCalls, configReads }
+  const driverPhase = driverName
+    ? graphStore.getEdgesFrom(`subroutine:${driverName}`).find(edge => edge.type === 'EXECUTES_DURING')
+    : undefined
+  const primaryCalls = calls.filter(edge => !isAuxiliaryCall(edge))
+  const driverFile = driverName ? graphStore.getNodeById(`subroutine:${driverName}`)?.data?.file : undefined
+  const implementationCalls = primaryCalls.filter(edge => {
+    const targetFile = graphStore.getNodeById(edge.target)?.data?.file
+    return targetFile && targetFile !== driverFile
+  })
+  const nestedCalls = implementationCalls.slice(0, 2).flatMap(parent =>
+    graphStore.getEdgesFrom(parent.target)
+      .filter(edge => edge.type === 'CALLS' && !isAuxiliaryCall(edge))
+      .slice(0, 5)
+      .map(edge => ({ parent, edge })))
+  const fields = [...new Set((implementationCalls.length ? implementationCalls : primaryCalls).flatMap(edge =>
+    (edge.data?.state_args || []).map((arg: { name: string }) => arg.name as string)))]
+  return { registry, packageNode, driverName, driverPhase, calls, conditionalCalls, configReads, nestedCalls, fields }
 })
 
 const callLabel = (edge: GraphEdge) => graphStore.getNodeById(edge.target)?.label || edge.target.replace('subroutine:', '')
@@ -106,6 +122,10 @@ const openNamelistTrace = () => {
     router.push({ path: '/namelist', query: { focus: currentCategory.value.namelist, value: selectedSchemeValue.value } })
   }
 }
+const openField = (name: string) => router.push({
+  path: '/variables',
+  query: { field: name, selector: currentCategory.value?.namelist, value: selectedSchemeValue.value },
+})
 </script>
 
 <template>
@@ -226,6 +246,37 @@ const openNamelistTrace = () => {
                           Open routine definition · {{ definitionOf(call.target)?.path }}:{{ definitionOf(call.target)?.startLine }} ↗
                         </button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="selectedSchemeDetails.driverPhase" class="trace-step">
+                  <span class="trace-index">04</span>
+                  <div>
+                    <strong>Where the driver is called</strong>
+                    <p><code>{{ selectedSchemeDetails.driverName }}</code> has an indexed call during <code>{{ selectedSchemeDetails.driverPhase.target.replace('phase:', '') }}</code>. This locates the driver, not a guarantee that every branch runs on every timestep.</p>
+                    <button class="evidence-link" @click="openEvidence(evidenceOf(selectedSchemeDetails.driverPhase))">View timestep call ↗</button>
+                  </div>
+                </div>
+                <div v-if="selectedSchemeDetails.nestedCalls.length" class="trace-step">
+                  <span class="trace-index">05</span>
+                  <div>
+                    <strong>One level inside the called routine</strong>
+                    <p>These are direct calls found inside the implementation routine. Their own guards and preprocessor conditions are not yet resolved, so they are possible next steps, not an unconditional sequence.</p>
+                    <div class="evidence-list">
+                      <button v-for="(item, i) in selectedSchemeDetails.nestedCalls" :key="`${item.edge.target}-${i}`" @click="openEvidence(evidenceOf(item.edge))">
+                        <code>{{ callLabel(item.parent) }} → {{ callLabel(item.edge) }}</code><span>{{ evidenceOf(item.edge)?.path }}:{{ evidenceOf(item.edge)?.startLine }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="selectedSchemeDetails.fields.length" class="trace-step">
+                  <span class="trace-index">06</span>
+                  <div>
+                    <strong>Registry fields passed at this branch</strong>
+                    <p>These field names match direct call arguments. Passing a field does not establish whether the routine reads or writes it.</p>
+                    <div class="field-links">
+                      <button v-for="field in selectedSchemeDetails.fields.slice(0, 16)" :key="field" @click="openField(field)">{{ field.toUpperCase() }} ↗</button>
+                      <span v-if="selectedSchemeDetails.fields.length > 16">+{{ selectedSchemeDetails.fields.length - 16 }} more arguments</span>
                     </div>
                   </div>
                 </div>
@@ -530,6 +581,10 @@ const openNamelistTrace = () => {
 .evidence-list code { font: .7rem var(--font-mono); overflow-wrap: anywhere; }
 .evidence-list span { color: #8da4b0; font: .59rem var(--font-mono); overflow-wrap: anywhere; text-align: right; }
 .unresolved-trace .trace-index { color: #e9ba7a; }
+.field-links { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+.field-links button { padding: .28rem .42rem; border: 1px solid rgba(110,231,183,.23); border-radius: 3px; background: rgba(110,231,183,.06); color: #a7e0d4; font: .62rem var(--font-mono); cursor: pointer; }
+.field-links button:hover { border-color: rgba(110,231,183,.6); }
+.field-links span { color: #8da4b0; font-size: .62rem; }
 .trace-deep-link { margin-left: 2.1rem; }
 .loading-state {
   flex: 1;

@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
-import type { GraphNode } from '@/types/graph'
+import type { GraphEdge, GraphNode, SourceEvidence } from '@/types/graph'
 
 const graphStore = useGraphStore()
+const route = useRoute()
+const router = useRouter()
 
 const searchQuery = ref('')
 const displayCount = ref(50)
+const siteCount = ref(18)
+const callerFilter = ref('all')
 const selectedVar = ref<GraphNode | null>(null)
+const featuredFields = ['HFX', 'QFX', 'TSK', 'SMOIS', 'PBLH']
 
 const stateVariables = computed(() => {
-  return graphStore.getNodesByType('state_variable').sort((a, b) => a.label.localeCompare(b.label))
+  return graphStore.getNodesByType('state_variable')
+    .filter(node => /^[a-z][\w]*$/i.test(node.label))
+    .sort((a, b) => a.label.localeCompare(b.label))
 })
 
 const filteredVariables = computed(() => {
@@ -33,6 +41,17 @@ const loadMore = () => {
 
 const selectVariable = (v: GraphNode) => {
   selectedVar.value = v
+  siteCount.value = 18
+  callerFilter.value = 'all'
+  searchQuery.value = v.label
+  router.replace({ query: { field: v.label } })
+}
+
+const selectByName = (name: string) => {
+  const found = graphStore.getNodeById(`state:${name.toLowerCase()}`)
+  if (found) {
+    selectVariable(found)
+  }
 }
 
 // Compute details for selected variable
@@ -51,12 +70,67 @@ const referencingSubroutines = computed(() => {
     s.data.args && (s.data.args.includes(varName) || s.data.args.includes(selectedVar.value!.label))
   )
 })
+
+const selectedScheme = computed(() => {
+  const selector = route.query.selector
+  const value = route.query.value
+  if (typeof selector !== 'string' || typeof value !== 'string') return null
+  const path = graphStore.getExecutionPath(selector, value)
+  return {
+    label: path.nodes.find(node => node.type === 'registry_package')?.label || `${selector}=${value}`,
+    keys: new Set(path.edges.filter(edge => edge.type === 'CALLS')
+      .map(edge => `${edge.source}:${edge.target}:${edge.data.evidence?.[0]?.startLine}`)),
+  }
+})
+const allCallSites = computed(() => {
+  if (!selectedVar.value) return []
+  return graphStore.getCallSitesForField(selectedVar.value.label)
+    .sort((a, b) => {
+      const aKey = `${a.source}:${a.target}:${a.data.evidence?.[0]?.startLine}`
+      const bKey = `${b.source}:${b.target}:${b.data.evidence?.[0]?.startLine}`
+      const aLinked = selectedScheme.value?.keys.has(aKey) ? 0 : 1
+      const bLinked = selectedScheme.value?.keys.has(bKey) ? 0 : 1
+      const aDriver = graphStore.getNodeById(a.source)?.type === 'driver' ? 0 : 1
+      const bDriver = graphStore.getNodeById(b.source)?.type === 'driver' ? 0 : 1
+      return aLinked - bLinked || aDriver - bDriver || a.source.localeCompare(b.source)
+    })
+})
+const callerOptions = computed(() => [...new Set(allCallSites.value.map(edge => edge.source))]
+  .sort((a, b) => a.localeCompare(b)))
+const callSites = computed(() => callerFilter.value === 'all'
+  ? allCallSites.value
+  : allCallSites.value.filter(edge => edge.source === callerFilter.value))
+const fieldArgument = (edge: GraphEdge) => edge.data?.state_args?.find(
+  (arg: { name: string }) => arg.name === selectedVar.value?.label.toLowerCase())?.argument || selectedVar.value?.label
+const routineLabel = (id: string) => graphStore.getNodeById(id)?.label || id.replace(/^\w+:/, '')
+const openEvidence = (evidence: SourceEvidence | undefined) => {
+  if (evidence?.path) router.push({ path: '/source', query: { file: evidence.path, line: String(evidence.startLine || 1) } })
+}
+const registryEvidence = computed<SourceEvidence | undefined>(() => {
+  const node = selectedVar.value
+  return node?.data?.source_file ? { path: node.data.source_file, startLine: node.data.source_line } : undefined
+})
+
+watch(() => [route.query.field, graphStore.isLoaded], () => {
+  if (!graphStore.isLoaded || typeof route.query.field !== 'string') return
+  const found = graphStore.getNodeById(`state:${route.query.field.toLowerCase()}`)
+  if (found) {
+    selectedVar.value = found
+    searchQuery.value = found.label
+    callerFilter.value = 'all'
+    siteCount.value = 18
+  }
+}, { immediate: true })
+
+onMounted(() => graphStore.loadGraph())
 </script>
 
 <template>
   <div class="variables-view">
     <div class="sidebar glass-panel">
       <div class="search-box">
+        <p class="eyebrow">Registry field index</p>
+        <h2>Variable Journey</h2>
         <input 
           type="text" 
           v-model="searchQuery" 
@@ -65,22 +139,26 @@ const referencingSubroutines = computed(() => {
           @input="displayCount = 50"
         />
         <div class="var-count">{{ filteredVariables.length }} variables found</div>
+        <div class="featured-fields">
+          <button v-for="name in featuredFields" :key="name" @click="selectByName(name)">{{ name }}</button>
+        </div>
       </div>
       
       <div class="var-list">
-        <div 
+        <button
           v-for="v in displayedVariables" 
           :key="v.id"
           class="var-card"
           :class="{ active: selectedVar?.id === v.id }"
           @click="selectVariable(v)"
+          type="button"
         >
           <div class="var-header">
             <span class="var-name">{{ v.label }}</span>
             <span class="var-type" v-if="v.data.type">{{ v.data.type }}</span>
           </div>
           <div class="var-desc" v-if="v.data.description">{{ v.data.description }}</div>
-        </div>
+        </button>
         
         <button 
           v-if="displayCount < filteredVariables.length" 
@@ -95,6 +173,7 @@ const referencingSubroutines = computed(() => {
     <div class="detail-panel glass-panel">
       <div v-if="selectedVar" class="detail-content">
         <div class="detail-header">
+          <p class="eyebrow">Source-grounded field path</p>
           <h2>{{ selectedVar.label }}</h2>
           <div class="tags">
             <span class="tag" v-if="selectedVar.data.type">Type: {{ selectedVar.data.type }}</span>
@@ -107,39 +186,69 @@ const referencingSubroutines = computed(() => {
           <h3>Description</h3>
           <p class="desc-text">{{ selectedVar.data.description || 'No description available.' }}</p>
         </div>
+
+        <div class="journey-contract">
+          <strong>What this trace proves</strong>
+          <p>Registry identifies the field. A matching name in a routine interface or CALL argument identifies a source-level handoff, not whether that routine reads, modifies, or outputs the field. The Atlas does not infer write direction from argument order.</p>
+        </div>
+        <div v-if="selectedScheme" class="journey-context">From Physics Explorer: <strong>{{ selectedScheme.label }}</strong>. Matching dispatch calls appear first when this field is passed there.</div>
         
-        <div class="detail-section" v-if="selectedVar.data.source_file">
-          <h3>Definition</h3>
-          <div class="source-info">
-            <code>{{ selectedVar.data.source_file }}</code> : {{ selectedVar.data.source_line }}
+        <div class="journey-step" v-if="registryEvidence">
+          <span>01</span>
+          <div>
+            <h3>Registry definition</h3>
+            <p>Declared as a WRF state field in the indexed checkout.</p>
+            <button class="source-info" @click="openEvidence(registryEvidence)">{{ registryEvidence.path }}:{{ registryEvidence.startLine }} ↗</button>
           </div>
         </div>
-        
-        <div class="detail-section">
-          <h3>Registry Packages ({{ relatedPackages.length }})</h3>
-          <div v-if="relatedPackages.length > 0" class="chip-container">
-            <div v-for="pkg in relatedPackages" :key="pkg.id" class="chip package-chip">
-              {{ pkg.label }}
+
+        <div class="journey-step">
+          <span>02</span>
+          <div>
+            <h3>Routine interfaces <small>{{ referencingSubroutines.length }} name matches</small></h3>
+            <p>These routine declarations include an argument with the same name. This is not a call or an execution claim.</p>
+            <div v-if="referencingSubroutines.length" class="routine-list">
+              <button v-for="sub in referencingSubroutines.slice(0, 12)" :key="sub.id" @click="openEvidence({ path: sub.data.file, startLine: sub.data.line })">
+                <code>{{ sub.label }}</code><span>{{ sub.data.file }}:{{ sub.data.line }} ↗</span>
+              </button>
+              <small v-if="referencingSubroutines.length > 12">Showing 12 of {{ referencingSubroutines.length }} matching interfaces</small>
             </div>
+            <p v-else class="text-muted">No routine declaration has a matching argument in this index.</p>
           </div>
-          <p v-else class="text-muted">Not explicitly part of any package state_vars.</p>
         </div>
-        
-        <div class="detail-section">
-          <h3>Referencing Subroutines ({{ referencingSubroutines.length }})</h3>
-          <div v-if="referencingSubroutines.length > 0" class="chip-container">
-            <div v-for="sub in referencingSubroutines" :key="sub.id" class="chip sub-chip">
-              {{ sub.label }}
+
+        <div class="journey-step">
+          <span>03</span>
+          <div>
+            <h3>Call-site handoffs <small>{{ callSites.length }} of {{ allCallSites.length }} name matches</small></h3>
+            <p>The field name appears as a direct argument at these exact CALL sites. Driver calls appear first; nested conditions may still govern execution.</p>
+            <label v-if="callerOptions.length > 1" class="caller-filter">Caller
+              <select v-model="callerFilter" @change="siteCount = 18">
+                <option value="all">All callers</option>
+                <option v-for="caller in callerOptions" :key="caller" :value="caller">{{ routineLabel(caller) }}</option>
+              </select>
+            </label>
+            <div v-if="callSites.length" class="handoff-list">
+              <button v-for="(edge, i) in callSites.slice(0, siteCount)" :key="`${edge.source}-${edge.target}-${i}`" @click="openEvidence(edge.data.evidence?.[0])">
+                <span class="handoff-chain"><code>{{ routineLabel(edge.source) }}</code> → <code>{{ routineLabel(edge.target) }}</code></span>
+                <span class="handoff-meta"><code>{{ fieldArgument(edge) }}</code> · {{ edge.data.evidence?.[0]?.path }}:{{ edge.data.evidence?.[0]?.startLine }} ↗</span>
+              </button>
+              <button v-if="siteCount < callSites.length" class="more-sites" @click="siteCount += 18">Show more call sites</button>
             </div>
+            <p v-else class="text-muted">No direct CALL argument match was found. This is not evidence that the field is unused.</p>
           </div>
-          <p v-else class="text-muted">No subroutines found directly referencing this variable in their arguments.</p>
+        </div>
+
+        <div v-if="relatedPackages.length" class="detail-section package-section">
+          <h3>Registry package associations</h3>
+          <p>Package membership is configuration metadata; it does not prove a field is exchanged during every run.</p>
+          <div class="chip-container"><span v-for="pkg in relatedPackages" :key="pkg.id" class="chip package-chip">{{ pkg.label }}</span></div>
         </div>
       </div>
       
       <div v-else class="empty-state">
-        <div class="icon">🔍</div>
         <h3>Select a variable</h3>
-        <p>Choose a state variable from the list to view its journey through the model.</p>
+        <p>Choose a Registry field to inspect its source definition, routine interfaces, and evidenced call-site handoffs.</p>
       </div>
     </div>
   </div>
@@ -169,6 +278,11 @@ const referencingSubroutines = computed(() => {
   border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
   background: var(--bg-panel-header, rgba(15, 23, 42, 0.8));
 }
+.search-box h2 { margin: 4px 0 15px; font-size: 1.15rem; font-weight: 620; }
+.eyebrow { margin: 0; color: var(--accent-emerald); font: 600 .61rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.featured-fields { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.featured-fields button { padding: 5px 8px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-inset); color: var(--text-secondary); font: .65rem var(--font-mono); cursor: pointer; }
+.featured-fields button:hover { border-color: var(--accent-emerald); color: var(--text-primary); }
 
 .search-input {
   width: 100%;
@@ -211,6 +325,9 @@ const referencingSubroutines = computed(() => {
 }
 
 .var-card {
+  width: 100%;
+  text-align: left;
+  color: var(--text-primary);
   padding: 1rem;
   background: var(--bg-card, rgba(30, 41, 59, 0.5));
   border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
@@ -289,6 +406,30 @@ const referencingSubroutines = computed(() => {
 .detail-content {
   padding: 2rem;
 }
+.journey-contract { margin: 0 0 25px; padding: 13px 16px; border-left: 2px solid var(--accent-amber); background: var(--bg-inset); }
+.journey-contract strong { font-size: .76rem; }
+.journey-context { margin: -12px 0 25px; padding: 10px 13px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--accent-soft); color: var(--text-secondary); font-size: .69rem; }
+.journey-context strong { color: var(--text-primary); }
+.journey-contract p,.journey-step p,.package-section p { margin: 6px 0 0; color: var(--text-secondary); font-size: .76rem; line-height: 1.55; }
+.journey-step { display: grid; grid-template-columns: 30px minmax(0,1fr); gap: 12px; margin-bottom: 27px; }
+.journey-step > span { padding-top: 2px; color: var(--accent-emerald); font: 650 .69rem var(--font-mono); }
+.journey-step h3 { margin: 0; font-size: .94rem; font-weight: 620; }
+.journey-step h3 small { margin-left: 8px; color: var(--text-muted); font-size: .65rem; font-weight: 450; }
+.routine-list,.handoff-list { display: grid; gap: 5px; margin-top: 12px; }
+.routine-list button,.handoff-list button { display: flex; width: 100%; justify-content: space-between; gap: 14px; padding: 9px 11px; border: 1px solid var(--border-subtle); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); cursor: pointer; text-align: left; }
+.routine-list button:hover,.handoff-list button:hover { border-color: var(--accent-emerald); }
+.routine-list code,.handoff-chain code { font-size: .69rem; }
+.routine-list button span,.handoff-meta { color: var(--text-muted); font: .61rem var(--font-mono); overflow-wrap: anywhere; text-align: right; }
+.routine-list > small { color: var(--text-muted); font-size: .65rem; }
+.handoff-list button { flex-direction: column; gap: 4px; }
+.handoff-meta { text-align: left; }
+.handoff-meta code { color: var(--accent-emerald); }
+.caller-filter { display: flex; align-items: center; gap: 10px; margin-top: 12px; color: var(--text-muted); font-size: .67rem; }
+.caller-filter select { min-width: 210px; max-width: 100%; padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); font-size: .67rem; }
+.handoff-list .more-sites { display: block; color: var(--accent-emerald); text-align: center; }
+.package-section { margin-left: 42px; }
+.package-section h3 { margin-bottom: 5px; }
+.package-section .chip-container { margin-top: 10px; }
 
 .detail-header {
   margin-bottom: 2rem;
@@ -336,6 +477,11 @@ const referencingSubroutines = computed(() => {
 }
 
 .source-info {
+  display: block;
+  width: 100%;
+  margin-top: 11px;
+  cursor: pointer;
+  text-align: left;
   background: var(--bg-darker, rgba(0, 0, 0, 0.2));
   padding: 1rem;
   border-radius: 6px;

@@ -140,11 +140,15 @@ WRF checkout
 
 The strongest current vertical slice is the Namelist Lab: a physics selector resolves through checkout-derived Registry mappings and symbolic driver dispatch to actual calls and source lines. The Atlas also includes the execution storyboard, Field Guide, source viewer, search, and structural version comparison.
 
+The Physics explorer now expands a selected scheme into a source-linked trace: Registry selection, matching driver branch, exact call sites, an indexed timestep call, one level of possible implementation calls, and Registry fields passed at those call sites. The Variables view follows a field from its Registry declaration through matching routine interfaces and direct call-site handoffs. Argument matches establish that a field name is passed; they do **not** establish whether a routine reads or writes the field, nor whether a guarded call runs in a particular simulation.
+
+In Namelist Lab, use **Load namelist.input** or paste the file to inspect its physics settings by domain. The editor and friendly selectors stay in sync without discarding unrelated lines or comments. For indexed `physics_suite` assignments, the Lab shows the effective setting when the raw option is `-1` and shows explicit per-domain overrides. Source-linked combination checks are advisory, not a replacement for WRF's own validation. The imported text stays only in page memory and is lost on refresh; copy any edits before leaving. Select a source snapshot matching the namelist's WRF version for the most relevant scheme mappings.
+
 ## Tests and limitations
 
-`npm test` covers multiline Fortran normalization, scope detection, symbolic dispatch, Registry provenance, deterministic line mapping, and source-evidenced timestep construction. `npm run build` performs TypeScript checking and a production Vite build.
+`npm test` runs Python indexer and snapshot tests plus frontend namelist-parser tests. It covers multiline Fortran normalization, scope detection, symbolic dispatch, Registry provenance, deterministic line mapping, suite/constraint extraction, direct field arguments, and source-evidenced timestep construction. `npm run build` performs TypeScript checking and a production Vite build.
 
-The scanner is tolerant rather than a complete Fortran compiler. Read/write direction, generated/preprocessed paths, full configuration validation, physics-suite overrides, and some scheduling conditions remain incomplete and must be labelled accordingly. The version comparison is structural: it reports indexed additions, removals, and mapping changes, not scientific equivalence or forecast impact.
+The scanner is tolerant rather than a complete Fortran compiler. Read/write direction, generated/preprocessed paths, full configuration validation, arbitrary physics-suite behavior, and some scheduling conditions remain incomplete and must be labelled accordingly. The suite and compatibility displays cover only patterns extracted from the indexed checkout; an absent warning does not imply a valid WRF configuration. The version comparison is structural: it reports indexed additions, removals, and mapping changes, not scientific equivalence or forecast impact.
 
 ## Adding a version or subsystem
 
