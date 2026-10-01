@@ -9,7 +9,7 @@
       <header class="page-intro">
         <div>
           <p class="eyebrow">WRF {{ graphStore.metadata?.wrf_version }} · {{ sourceContextLabel }}</p>
-          <h1>Understand what WRF will execute.</h1>
+          <h1>Trace a WRF choice into the code.</h1>
           <p class="intro-copy">
             Move from a namelist choice to the Registry rule, driver branch, called routines,
             and exchanged model state—with the source beside every claim.

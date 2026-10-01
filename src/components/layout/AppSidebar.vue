@@ -1,5 +1,5 @@
 <template>
-  <aside class="app-sidebar" :class="{ collapsed: uiStore.sidebarCollapsed }">
+  <component :is="uiStore.isCompactScreen ? 'dialog' : 'aside'" ref="sidebarRoot" class="app-sidebar" :class="{ collapsed: uiStore.sidebarCollapsed }" aria-label="Atlas navigation" @cancel.prevent="uiStore.sidebarCollapsed = true" @click="closeBackdrop">
     <div class="sidebar-header">
       <router-link to="/" class="brand" aria-label="WRF Code Atlas home">
         <span class="brand-mark" aria-hidden="true">
@@ -12,13 +12,13 @@
           <small>Source intelligence</small>
         </span>
       </router-link>
-      <button v-if="!uiStore.sidebarCollapsed" class="mobile-close" aria-label="Close navigation" @click="uiStore.toggleSidebar">✕</button>
+      <button v-if="!uiStore.sidebarCollapsed" class="mobile-close" aria-label="Close navigation" @click="uiStore.toggleSidebar"><X :size="18" /></button>
     </div>
 
     <div v-if="!uiStore.sidebarCollapsed" class="nav-section-label">Explore</div>
     <nav class="sidebar-nav" aria-label="Primary navigation">
       <router-link v-for="item in navigation" :key="item.to" :to="item.to" class="nav-item" :title="item.label">
-        <span class="nav-glyph" aria-hidden="true">{{ item.glyph }}</span>
+        <component :is="item.icon" class="nav-icon" :size="18" aria-hidden="true" />
         <span v-if="!uiStore.sidebarCollapsed" class="label">{{ item.label }}</span>
       </router-link>
     </nav>
@@ -46,11 +46,12 @@
         <svg v-if="!uiStore.sidebarCollapsed" viewBox="0 0 20 20" aria-hidden="true"><path d="M8 5h7v7M15 5 7 13"/><path d="M13 11v4H5V7h4"/></svg>
       </a>
     </div>
-  </aside>
+  </component>
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, ref, nextTick, onMounted } from 'vue'
+import { X, Home, FileSliders, Network, Cloud, Database, GitCompare, FileCode, BookOpen } from '@lucide/vue'
 import { useRoute } from 'vue-router'
 import { useUiStore } from '@/stores/uiStore'
 import { useGraphStore } from '@/stores/graphStore'
@@ -58,17 +59,32 @@ import { useGraphStore } from '@/stores/graphStore'
 const uiStore = useUiStore()
 const graphStore = useGraphStore()
 const route = useRoute()
+const sidebarRoot = ref<HTMLElement>()
+const syncNavigation = async () => {
+  await nextTick()
+  if (sidebarRoot.value instanceof HTMLDialogElement) {
+    if (uiStore.sidebarCollapsed) sidebarRoot.value.close()
+    else if (!sidebarRoot.value.open) sidebarRoot.value.showModal()
+  }
+}
+watch(() => [uiStore.isCompactScreen, uiStore.sidebarCollapsed], syncNavigation)
+onMounted(syncNavigation)
+const closeBackdrop = (event: MouseEvent) => {
+  if (!uiStore.isCompactScreen || event.target !== sidebarRoot.value) return
+  const bounds = sidebarRoot.value.getBoundingClientRect()
+  if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY > bounds.bottom) uiStore.sidebarCollapsed = true
+}
 watch(() => route.path, () => { if (window.matchMedia('(max-width: 800px)').matches) uiStore.sidebarCollapsed = true })
 
 const navigation = [
-  { to: '/', label: 'Overview', glyph: 'OV' },
-  { to: '/namelist', label: 'Namelist Lab', glyph: 'NL' },
-  { to: '/execution', label: 'Execution Map', glyph: 'EX' },
-  { to: '/physics', label: 'Physics', glyph: 'PH' },
-  { to: '/variables', label: 'Variables', glyph: 'VR' },
-  { to: '/compare', label: 'Compare', glyph: 'CP' },
-  { to: '/source', label: 'Source', glyph: 'SC' },
-  { to: '/tours', label: 'Guided Tours', glyph: 'GT' },
+  { to: '/', label: 'Overview', icon: Home },
+  { to: '/namelist', label: 'Namelist Lab', icon: FileSliders },
+  { to: '/execution', label: 'Execution Map', icon: Network },
+  { to: '/physics', label: 'Physics', icon: Cloud },
+  { to: '/variables', label: 'Variables', icon: Database },
+  { to: '/compare', label: 'Compare', icon: GitCompare },
+  { to: '/source', label: 'Source', icon: FileCode },
+  { to: '/tours', label: 'Guided Tours', icon: BookOpen },
 ]
 
 const shortCommit = computed(() => {
@@ -95,10 +111,15 @@ const shortCommit = computed(() => {
 .app-sidebar.collapsed { width: var(--sidebar-collapsed); }
 .mobile-close { display: none; }
 @media (max-width: 800px) {
-  .app-sidebar { position: absolute; inset: 0 auto 0 0; height: 100dvh; }
+  .app-sidebar { position: fixed; inset: 0 auto 0 0; height: 100dvh; max-height: none; max-width: 85vw; width: 280px; margin: 0; padding: 0; color: var(--text-primary); border: 0; border-right: 1px solid var(--border-strong); }
+  .app-sidebar:not([open]) { display: none; }
+  .app-sidebar::backdrop { background: #0009; }
   .app-sidebar:not(.collapsed) { box-shadow: 16px 0 45px #0006; }
   .mobile-close { display: block; padding: 5px 8px; margin-left: auto; margin-right: 12px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); cursor: pointer; }
 }
+.nav-icon { flex-shrink: 0; color: var(--text-secondary); }
+.collapsed .nav-item { justify-content: center; }
+.mobile-close { min-height: 44px; min-width: 44px; }
 
 .sidebar-header {
   display: flex;

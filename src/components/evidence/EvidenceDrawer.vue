@@ -94,5 +94,8 @@ header h2 { margin-top: 4px; font-size: 1.2rem; overflow-wrap: anywhere; }
 .excerpt-scroll { flex: 1; overflow: auto; min-height: 120px; background: var(--bg-inset); }.source-excerpt { min-width: max-content; padding: 12px 0; font: .74rem/1.85 var(--font-mono); }.source-excerpt > div { display: flex; padding-right: 20px; }.source-excerpt span { flex-shrink: 0; width: 64px; padding-right: 16px; text-align: right; color: var(--text-muted); user-select: none; }.source-excerpt pre { margin: 0; font: inherit; white-space: pre; }.source-excerpt .highlighted { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent-emerald); }
 .drawer-message { padding: 24px; font-size: .85rem; }
 footer { padding: 17px 24px; border-top: 1px solid var(--border-subtle); }footer p,footer small { color: var(--text-secondary); font-size: .72rem; }footer > div { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }footer button,footer a { border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); padding: 8px 11px; color: var(--text-primary); cursor: pointer; font-size: .76rem; }
+.drawer-context,.source-location,.explanation,.source-warning,footer p,footer small { font-size: .85rem; }
+.source-excerpt { font-size: .85rem; }
+footer button,footer a,.close-drawer { min-height: 44px; }
 @media (prefers-reduced-motion: no-preference) { .evidence-drawer[open] { animation: drawer-in .18s ease-out; }@keyframes drawer-in { from { transform: translateX(30px); opacity: .6; }to { transform: translateX(0); opacity: 1; } } }
 </style>

@@ -1,11 +1,11 @@
 <template>
-  <div v-if="isOpen" class="search-backdrop" @click.self="close">
-    <section class="search-palette" role="dialog" aria-modal="true" aria-label="Search WRF Code Atlas">
+  <dialog ref="dialog" class="search-backdrop" aria-label="Search WRF Code Atlas" @cancel.prevent="close" @keydown="containFocus" @click="($event.target === dialog) && close()">
+    <section class="search-palette">
       <div class="search-input-wrapper">
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="4.5"/><path d="m12 12 4 4"/></svg>
         <input ref="searchInput" v-model="query" type="search" class="search-input"
           :placeholder="scope === 'atlas' ? 'Search options, fields and routines' : 'Search the broader indexed codebase'"
-          @keydown.esc="close" @keydown.down.prevent="moveSelection(1)"
+          aria-label="Search options, fields and routines" @keydown.down.prevent="moveSelection(1)"
           @keydown.up.prevent="moveSelection(-1)" @keydown.enter="selectCurrent" />
         <kbd>Esc</kbd>
       </div>
@@ -69,7 +69,7 @@
 
       <footer><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> open</span><span>Graphify never overrides Atlas execution evidence.</span></footer>
     </section>
-  </div>
+  </dialog>
 </template>
 
 <script setup lang="ts">
@@ -78,6 +78,7 @@ import { useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
 import { useGraphifyStore } from '@/stores/graphifyStore'
 import { useLocalSourceStore } from '@/stores/localSourceStore'
+import { entityDestination } from '@/lib/exploration'
 import type { GraphNode, GraphifySearchEntry } from '@/types/graph'
 
 type Scope = 'atlas' | 'graphify'
@@ -93,6 +94,7 @@ const router = useRouter()
 const query = ref('')
 const scope = ref<Scope>('atlas')
 const searchInput = ref<HTMLInputElement | null>(null)
+const dialog = ref<HTMLDialogElement>()
 const selectedIndex = ref(0)
 const wrfPath = ref('')
 const runStatus = ref('')
@@ -168,14 +170,26 @@ const results = computed<Result[]>(() => {
 })
 
 const close = () => { emit('close'); query.value = '' }
+const containFocus = (event: KeyboardEvent) => {
+  if (event.key !== 'Tab' || !dialog.value) return
+  const controls = [...dialog.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')]
+    .filter(element => element.getClientRects().length)
+  const first = controls[0]
+  const last = controls.at(-1)
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
 const selectGraphify = async () => { scope.value = 'graphify'; await Promise.all([graphifyStore.loadIndex(), readRunnerStatus()]) }
 const moveSelection = (direction: number) => { if (results.value.length) selectedIndex.value = (selectedIndex.value + direction + results.value.length) % results.value.length }
 const selectCurrent = () => { const result = results.value[selectedIndex.value]; if (result) selectResult(result) }
 const selectResult = (result: Result) => {
   if (result.graphify) router.push({ path: '/source', query: { file: result.graphify.path, line: result.graphify.line || undefined, origin: 'graphify' } })
-  else if (result.node?.type === 'physics_scheme' || result.node?.type === 'namelist_option') router.push('/physics')
-  else if (result.node?.type === 'state_variable') router.push('/variables')
-  else if (result.node?.data?.file) router.push({ path: '/source', query: { file: result.node.data.file, line: result.node.data.line || undefined } })
+  else if (result.node) router.push(entityDestination(result.node))
   else router.push('/source')
   close()
 }
@@ -183,12 +197,24 @@ const atlasGlyph = (type: string) => ({ namelist_option: 'NL', physics_scheme: '
 const formatType = (type: string) => type.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())
 watch(query, () => { selectedIndex.value = 0 })
 watch(scope, () => { selectedIndex.value = 0 })
-watch(() => props.isOpen, async open => { if (open) { if (scope.value === 'graphify') await Promise.all([graphifyStore.loadIndex(), readRunnerStatus()]); nextTick(() => searchInput.value?.focus()) } else if (pollTimer) clearTimeout(pollTimer) })
+watch(() => props.isOpen, async open => {
+  if (open) {
+    await nextTick()
+    dialog.value?.showModal()
+    searchInput.value?.focus()
+    if (scope.value === 'graphify') await Promise.all([graphifyStore.loadIndex(), readRunnerStatus()])
+  } else {
+    dialog.value?.close()
+    if (pollTimer) clearTimeout(pollTimer)
+  }
+})
 onUnmounted(() => { if (pollTimer) clearTimeout(pollTimer) })
 </script>
 
 <style scoped>
-.search-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; padding: 9vh 20px 20px; background: rgba(3, 8, 14, .66); backdrop-filter: blur(8px); }
+.search-backdrop { position: fixed; inset: 0; width: 100%; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 9vh 20px 20px; border: 0; background: transparent; color: var(--text-primary); }
+.search-backdrop[open] { display: flex; justify-content: center; }
+.search-backdrop::backdrop { background: #0009; }
 .search-palette { display: flex; flex-direction: column; width: min(720px, 100%); max-height: min(760px, 82vh); overflow: hidden; align-self: flex-start; background: color-mix(in srgb, var(--bg-raised) 97%, transparent); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: 0 28px 80px rgba(0, 0, 0, .48); }
 .search-input-wrapper { display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 0 18px; border-bottom: 1px solid var(--border-subtle); }.search-input-wrapper svg { width: 18px; fill: none; stroke: var(--text-muted); stroke-width: 1.5; }.search-input { min-width: 0; flex: 1; background: transparent; border: 0; outline: 0; color: var(--text-primary); font-size: .98rem; }kbd { padding: 2px 6px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-muted); font: .61rem var(--font-mono); }
 .search-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); }.search-scope button { display: flex; align-items: baseline; justify-content: space-between; padding: 9px 11px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--text-muted); cursor: pointer; }.search-scope button:hover { background: var(--bg-surface-hover); color: var(--text-secondary); }.search-scope button.active { background: var(--bg-inset); border-color: var(--border-strong); color: var(--text-primary); }.search-scope small { font: .58rem var(--font-mono); letter-spacing: .05em; text-transform: uppercase; }
@@ -198,4 +224,6 @@ onUnmounted(() => { if (pollTimer) clearTimeout(pollTimer) })
 .result-item { display: flex; width: 100%; align-items: center; gap: 12px; padding: 10px 11px; background: transparent; border: 1px solid transparent; border-radius: 7px; color: inherit; cursor: pointer; text-align: left; }.result-item:hover, .result-item.selected { background: var(--bg-surface-hover); border-color: var(--border-subtle); }.result-icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 5px; color: var(--text-secondary); font: 600 .58rem var(--font-mono); }.result-info { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }.result-heading { display: flex; align-items: center; gap: 8px; }.result-heading strong { overflow: hidden; color: var(--text-primary); font-size: .79rem; font-weight: 580; text-overflow: ellipsis; white-space: nowrap; }.result-heading i { padding: 2px 5px; border: 1px solid var(--border-subtle); border-radius: 3px; color: var(--text-muted); font: normal .5rem var(--font-mono); text-transform: uppercase; }.result-heading i.graphify { border-color: color-mix(in srgb, var(--accent-amber) 35%, var(--border-subtle)); color: var(--accent-amber); }.result-meta { overflow: hidden; color: var(--text-muted); font: .61rem var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }.result-context { overflow: hidden; color: var(--text-secondary); font-size: .62rem; text-overflow: ellipsis; white-space: nowrap; }.result-arrow { color: var(--text-muted); font-size: .72rem; }
 footer { display: flex; align-items: center; gap: 17px; padding: 9px 14px; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: .58rem; }footer span:last-child { margin-left: auto; }
 @media (max-width: 620px) { .search-backdrop { padding: 4vh 8px; }.search-scope { grid-template-columns: 1fr; }footer span:last-child { display: none; } }
+.result-meta, .result-context, .provenance-strip p { font-size: .75rem; }
+.search-scope button { min-height: 44px; }
 </style>

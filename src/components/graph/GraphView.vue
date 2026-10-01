@@ -19,10 +19,11 @@
       <div class="toolbar-divider"></div>
 
       <div class="toolbar-group">
-        <button class="tool-btn icon-only" title="Zoom in" @click="zoomIn">+</button>
-        <button class="tool-btn icon-only" title="Zoom out" @click="zoomOut">−</button>
-        <button class="tool-btn icon-only" title="Fit view" @click="fitView">Fit</button>
-        <button class="tool-btn icon-only" title="Reset view" @click="resetView">Reset</button>
+        <button class="tool-btn icon-only" title="Zoom in" aria-label="Zoom in" @click="zoomIn"><ZoomIn :size="16" /></button>
+        <button class="tool-btn icon-only" title="Zoom out" aria-label="Zoom out" @click="zoomOut"><ZoomOut :size="16" /></button>
+        <button class="tool-btn icon-only" title="Fit view" aria-label="Fit view" @click="fitView"><Maximize :size="16" /></button>
+        <button class="tool-btn icon-only" title="Reset view" aria-label="Reset view" @click="resetView"><RotateCcw :size="16" /></button>
+        <button class="tool-btn" title="Browse graph nodes as a list" :aria-pressed="showList" @click="showList = !showList"><ListTree :size="16" /><span>Trace list</span></button>
       </div>
 
       <div class="toolbar-divider"></div>
@@ -40,25 +41,41 @@
     </div>
 
     <!-- Node Type Legend Bar -->
-    <div class="legend-bar glass">
-      <div 
+    <div v-if="!showList" class="legend-bar glass">
+      <button
         v-for="(color, type) in activeLegendTypes" 
         :key="type"
         class="legend-item"
         :class="{ dimmed: activeTypeFilter && activeTypeFilter !== type }"
+        :aria-pressed="activeTypeFilter === type"
         @click="toggleTypeFilter(type)"
       >
         <span class="legend-dot" :style="{ backgroundColor: color }"></span>
         <span class="legend-label">{{ formatTypeName(type) }}</span>
         <span class="legend-count">{{ getNodeCountByType(type) }}</span>
-      </div>
+      </button>
       <button v-if="activeTypeFilter" class="reset-filter-btn" @click="activeTypeFilter = null">
         Show All
       </button>
     </div>
 
     <!-- Cytoscape Container -->
-    <div class="graph-container" ref="container"></div>
+    <div v-show="!showList" class="graph-container" ref="container" aria-label="Execution graph; use Trace list for keyboard exploration"></div>
+    <div v-if="showList" class="trace-list" aria-label="Execution trace nodes">
+      <p>Relationships share the graph's evidence. Conditional calls and inferred joins do not prove execution.</p>
+      <article v-for="node in filteredNodes" :key="node.id">
+        <button :aria-pressed="selectedNodeId === node.id" @click="selectNode(node)"><strong>{{ node.label }}</strong><span>{{ formatTypeName(node.type) }}</span></button>
+        <ul v-if="relationships(node.id).length">
+          <li v-for="(edge, index) in relationships(node.id)" :key="index">
+            <span>{{ edgeLabels[edge.type] || edge.type }} · {{ edge.data.confidence || 'unresolved' }}</span>
+            <button @click="selectTarget(edge.target)">{{ props.nodes.find(target => target.id === edge.target)?.label || edge.target }}</button>
+            <small v-if="edge.data.condition">{{ edge.data.condition }}</small>
+            <small v-if="edge.data.evidence?.[0]">{{ edge.data.evidence[0].path }}:{{ edge.data.evidence[0].startLine }}</small>
+          </li>
+        </ul>
+      </article>
+    </div>
+    <span class="sr-only" role="status">{{ selectedNodeLabel ? `Selected ${selectedNodeLabel}` : '' }}</span>
 
     <!-- Graph Stats Footer -->
     <div class="graph-footer">
@@ -72,7 +89,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
+import { ref, onMounted, watch, onUnmounted, computed, nextTick } from 'vue'
+import { ZoomIn, ZoomOut, Maximize, RotateCcw, ListTree } from '@lucide/vue'
 import cytoscape from 'cytoscape'
 import type { GraphNode, GraphEdge } from '@/types/graph'
 
@@ -95,6 +113,21 @@ const currentLayout = ref(props.layout)
 const graphFilter = ref('')
 const activeTypeFilter = ref<string | null>(null)
 const selectedNodeLabel = ref<string | null>(null)
+const selectedNodeId = ref<string | null>(null)
+const showList = ref(false)
+const filteredNodes = computed(() => props.nodes.filter(node =>
+  (!activeTypeFilter.value || node.type === activeTypeFilter.value) &&
+  (!graphFilter.value.trim() || node.label.toLowerCase().includes(graphFilter.value.trim().toLowerCase()))))
+const relationships = (id: string) => props.edges.filter(edge => edge.source === id && props.nodes.some(node => node.id === edge.target))
+const selectNode = (node: GraphNode) => {
+  selectedNodeId.value = node.id
+  selectedNodeLabel.value = node.label
+  cy?.nodes().unselect()
+  cy?.getElementById(node.id).select()
+  emit('node-click', node)
+}
+const selectTarget = (id: string) => { const node = props.nodes.find(item => item.id === id); if (node) selectNode(node) }
+watch(showList, async () => { await nextTick(); cy?.resize(); if (!showList.value) fitView() })
 
 const layoutOptions = [
   { id: 'tree-tb', label: 'Vertical', description: 'Hierarchical vertical tree layout' },
@@ -183,8 +216,8 @@ const style: cytoscape.Stylesheet[] = [
       'font-weight': '600' as any,
       'font-family': 'Cascadia Code, Consolas, monospace',
       'text-outline-width': 0,
-      'width': 'label',
-      'height': 'label',
+      'width': 190,
+      'height': 50,
       'padding': '16px',
       'shape': 'round-rectangle',
       'background-color': '#3b82f6',
@@ -194,7 +227,6 @@ const style: cytoscape.Stylesheet[] = [
       'text-wrap': 'wrap',
       'transition-property': 'background-color, border-color, border-width, opacity',
       'transition-duration': 250,
-      'shadow-opacity': 0,
     }
   },
   ...Object.entries(nodeColors).map(([type, color]) => ({
@@ -314,9 +346,6 @@ const style: cytoscape.Stylesheet[] = [
       'border-width': 5,
       'border-color': '#ffffff',
       'border-opacity': 1,
-      'shadow-blur': 25,
-      'shadow-color': '#ffffff',
-      'shadow-opacity': 0.8,
     }
   },
   {
@@ -343,16 +372,14 @@ onMounted(() => {
     elements: [],
     style,
     layout: { name: 'preset' },
-    wheelSensitivity: 0.75,
     minZoom: 0.15,
     maxZoom: 3.5,
   })
 
   cy.on('tap', 'node', (evt) => {
     const nodeData = evt.target.data()
-    selectedNodeLabel.value = nodeData.label
     const node = props.nodes.find(n => n.id === nodeData.id)
-    if (node) emit('node-click', node)
+    if (node) selectNode(node)
   })
 
   cy.on('tap', (evt) => {
@@ -457,6 +484,8 @@ const runLayout = () => {
 const updateGraph = () => {
   if (!cy || !props.nodes.length) return
 
+  selectedNodeId.value = null
+  selectedNodeLabel.value = null
   const nodeIds = new Set(props.nodes.map(n => n.id))
   const validEdges = props.edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
 
@@ -563,6 +592,7 @@ const resetView = () => {
   graphFilter.value = ''
   activeTypeFilter.value = null
   selectedNodeLabel.value = null
+  selectedNodeId.value = null
   runLayout()
 }
 
@@ -589,6 +619,18 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
 }
+.trace-list { flex: 1; min-height: 0; overflow-y: auto; padding: 72px 18px 36px; }
+.trace-list > p { color: var(--text-secondary); font-size: .85rem; margin-bottom: 12px; }
+.trace-list article { padding: 12px 0; border-bottom: 1px solid var(--border-subtle); }
+.trace-list article > button { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-primary); text-align: left; cursor: pointer; }
+.trace-list button[aria-pressed=true] { border-color: var(--accent-emerald); }
+.trace-list article > button span { color: var(--text-secondary); font-size: .8rem; }
+.trace-list ul { list-style: none; padding-left: 12px; }
+.trace-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 10px; color: var(--text-secondary); font-size: .8rem; }
+.trace-list li button { min-height: 44px; padding: 4px; background: transparent; border: 0; color: var(--accent-emerald); cursor: pointer; text-align: left; }
+.trace-list small { flex-basis: 100%; overflow-wrap: anywhere; font-size: .75rem; }
+.legend-item { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; }
+.tool-btn { min-height: 36px; }.tool-btn svg { flex-shrink: 0; }
 
 /* Toolbar */
 .graph-toolbar {
@@ -758,7 +800,7 @@ onUnmounted(() => {
   flex: 1;
   width: 100%;
   height: 100%;
-  min-height: 450px;
+  min-height: 300px;
   background-color: var(--bg-inset);
   background-image: radial-gradient(circle, var(--border-subtle) 1px, transparent 1px);
   background-size: 22px 22px;

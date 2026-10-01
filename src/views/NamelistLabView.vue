@@ -2,7 +2,6 @@
   <div class="namelist-view">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Configuration → executable code</p>
         <h1>Trace a namelist decision</h1>
         <p>Choose one physics selector and follow the evidence WRF uses to reach its active implementation branch.</p>
       </div>
@@ -75,19 +74,19 @@
       </section>
       <section class="decision-bar surface-panel">
         <div class="decision-question">
-          <span class="decision-index">01</span>
           <div>
             <p class="eyebrow">Physics family</p>
             <h2>Which WRF decision should we trace?</h2>
           </div>
         </div>
-        <div class="category-tabs" role="tablist" aria-label="Physics selectors">
+        <div class="category-tabs" role="group" aria-label="Physics selectors">
           <button
             v-for="(category, key) in PHYSICS_CATEGORIES"
             :key="key"
             :class="{ active: focusedNamelist === category.namelist }"
-            role="tab"
+            :aria-pressed="focusedNamelist === category.namelist"
             @click="focusCategory(category.namelist)"
+            @keydown="navigateFamily($event, category.namelist)"
           >
             <span>{{ categoryCode(String(key)) }}</span>
             {{ shortCategoryLabel(category.label) }}
@@ -102,7 +101,6 @@
               <p class="eyebrow">Selected configuration</p>
               <h2>{{ focusedCategory?.label }}</h2>
             </div>
-            <span class="panel-number">02</span>
           </div>
 
           <div class="config-control">
@@ -124,7 +122,7 @@
             <pre><span>{{ focusedNamelist }}</span> = <strong>{{ configStore.namelistText === null ? selectedValue : (configStore.getRawConfig(focusedNamelist) ?? 'not specified') }}</strong><template v-if="configStore.getConfigOrigin(focusedNamelist) === 'suite'">  → effective {{ selectedValue }} from suite</template></pre>
           </div>
 
-          <dl class="selection-facts">
+          <dl v-if="ui.mode === 'researcher'" class="selection-facts">
             <div>
               <dt>Registry package</dt>
               <dd><code>{{ activePackage?.data?.package_name || activePackage?.label || 'Unresolved' }}</code></dd>
@@ -143,7 +141,7 @@
             </div>
           </dl>
 
-          <div class="source-contract">
+          <div v-if="ui.mode === 'researcher'" class="source-contract">
             <strong>Evidence contract</strong>
             <p>Solid relationships come from an indexed Registry predicate or Fortran call. Dotted joins connect those separately proven facts and remain marked inferred.</p>
           </div>
@@ -160,7 +158,7 @@
                 {{ showAllCalls ? 'Show focused path' : `Show all ${dispatchCalls.length} calls` }}
               </button>
               <span>{{ graphNodes.length }} visible nodes</span>
-              <span>{{ exactEvidenceCount }} evidenced edges</span>
+              <span v-if="ui.mode === 'researcher'">{{ exactEvidenceCount }} source facts in full path</span>
             </div>
           </div>
 
@@ -184,10 +182,17 @@
               <p class="eyebrow">Why active?</p>
               <h2>{{ activePackage?.label || focusedNamelist }}</h2>
             </div>
-            <span class="panel-number">03</span>
           </div>
 
-          <div class="reasoning-chain">
+          <div v-if="ui.mode === 'learning'" class="learning-proof" aria-live="polite">
+            <p v-if="activePackage">This choice associates <strong>{{ activePackage.label }}</strong> with your configuration. {{ hasRuntimeDispatch ? 'The index joins that package to a conditional driver branch.' : 'A runtime branch has not been resolved for this value.' }}</p>
+            <p v-else>Choose a supported value to inspect its package and source evidence.</p>
+            <button v-if="registryEvidence" @click="openEvidence(registryEvidence)"><strong>Why this scheme?</strong><span>Inspect the Registry value mapping · direct source</span></button>
+            <button v-if="focusedDispatchCalls[0]" @click="selectCall(focusedDispatchCalls[0])"><strong>Inspect a call in this branch</strong><span>{{ focusedNamelistNode?.data?.driver }} → {{ graphStore.getNodeById(focusedDispatchCalls[0].target)?.label }} · conditional CALL</span></button>
+            <router-link v-if="driverPhase" to="/execution?view=timestep"><strong>When is the driver called?</strong><span>{{ driverPhase.target.replace('phase:', '') }} · indexed timestep location</span></router-link>
+            <p class="selection-caveat">The value-to-branch join is inferred. Calls may have additional conditions; this is a reachable path, not an observed run.</p>
+          </div>
+          <div v-else class="reasoning-chain">
             <article class="reason-step">
               <span class="reason-marker" :class="selectedValue === null ? 'unresolved' : 'exact'">1</span>
               <div>
@@ -248,6 +253,7 @@
           </div>
         </aside>
       </div>
+      <FieldGroups v-if="ui.mode === 'learning'" :fields="learningFields" @select="openField" />
     </template>
   </div>
 </template>
@@ -258,6 +264,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useConfigStore } from '@/stores/configStore'
 import { useGraphStore } from '@/stores/graphStore'
 import { useEvidenceStore } from '@/stores/evidenceStore'
+import { useUiStore } from '@/stores/uiStore'
+import FieldGroups from '@/components/evidence/FieldGroups.vue'
 import GraphView from '@/components/graph/GraphView.vue'
 import { PHYSICS_CATEGORIES } from '@/types/graph'
 import type { GraphEdge, GraphNode, SourceEvidence } from '@/types/graph'
@@ -267,6 +275,7 @@ const router = useRouter()
 const configStore = useConfigStore()
 const graphStore = useGraphStore()
 const evidenceStore = useEvidenceStore()
+const ui = useUiStore()
 
 const initialFocus = typeof route.query.focus === 'string' && Object.values(PHYSICS_CATEGORIES).some(c => c.namelist === route.query.focus)
   ? route.query.focus
@@ -320,7 +329,9 @@ const dispatchCalls = computed(() => pathEdges.value.filter(edge => edge.type ==
 const focusedDispatchCalls = computed(() => {
   const infrastructure = /^(wrf_debug|wrf_error_fatal|add_multi_perturb|remove_multi_perturb)/i
   const scientific = dispatchCalls.value.filter(edge => !infrastructure.test(graphStore.getNodeById(edge.target)?.label || ''))
-  return (scientific.length ? scientific : dispatchCalls.value).slice(0, 4)
+  return [...(scientific.length ? scientific : dispatchCalls.value)]
+    .sort((a, b) => (b.data.state_args?.length || 0) - (a.data.state_args?.length || 0))
+    .slice(0, 4)
 })
 const graphEdges = computed(() => {
   if (showAllCalls.value) return pathEdges.value
@@ -336,6 +347,23 @@ const hasRuntimeDispatch = computed(() => pathEdges.value.some(edge => edge.type
 const exactEvidenceCount = computed(() => pathEdges.value.filter(edge => edge.data?.confidence === 'exact' && edge.data?.evidence?.length).length)
 const registryEdge = computed(() => pathEdges.value.find(edge => edge.type === 'SELECTS'))
 const registryEvidence = computed(() => registryEdge.value?.data?.evidence?.[0])
+const driverPhase = computed(() => graphStore.getEdgesFrom(`subroutine:${focusedNamelistNode.value?.data?.driver}`)
+  .find(edge => edge.type === 'EXECUTES_DURING' && edge.data.evidence?.length))
+const learningFields = computed(() => [...new Set(focusedDispatchCalls.value.flatMap(edge =>
+  (edge.data.state_args || []).map((arg: { name: string }) => arg.name.toLowerCase())))]
+  .map(name => graphStore.getNodeById(`state:${name}`)).filter((node): node is GraphNode => !!node))
+const openField = (field: GraphNode) => router.push({ path: '/variables', query: { field: field.label, selector: focusedNamelist.value, value: String(selectedValue.value) } })
+const navigateFamily = (event: KeyboardEvent, name: string) => {
+  const names = Object.values(PHYSICS_CATEGORIES).map(category => category.namelist as string)
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? names.length - 1
+    : (names.indexOf(name) + (event.key === 'ArrowRight' ? 1 : -1) + names.length) % names.length
+  focusCategory(names[index]!)
+  const buttons = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll('button')
+  buttons?.[index]?.focus()
+  buttons?.[index]?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+}
 
 const categoryCode = (key: string) => key.split('_').map(word => word[0]).join('').slice(0, 3).toUpperCase()
 const shortCategoryLabel = (label: string) => label
@@ -399,6 +427,7 @@ watch(() => [route.query.focus, route.query.value], ([focus, value]) => {
     showAllCalls.value = false
     return
   }
+  if (typeof value !== 'string') return
   const requested = Number(value)
   if (Number.isFinite(requested) && focusedOptions.value.some(option => Number(option.value) === requested)) {
     configStore.setConfig(focus, requested)
@@ -490,7 +519,7 @@ onMounted(async () => {
 .trace-workspace { display: flex; flex-direction: column; }
 .workspace-heading { align-items: center; }.workspace-heading h2 { font-family: var(--font-mono); }
 .workspace-summary { display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-family: var(--font-mono); font-size: 0.61rem; }.workspace-summary button { padding: 6px 8px; background: var(--accent-soft); border: 1px solid color-mix(in srgb,var(--accent-emerald) 30%,var(--border-subtle)); border-radius: 4px; color: var(--accent-emerald); cursor: pointer; font: inherit; }
-.graph-stage { flex: 1; min-height: 600px; background: var(--bg-inset); }
+.graph-stage { height: 420px; min-height: 420px; background: var(--bg-inset); }
 .graph-stage :deep(.graph-toolbar) { top: 6px; left: 6px; right: auto; margin: 0; }
 .graph-stage :deep(.toolbar-group:first-child .tool-btn:not(.active)), .graph-stage :deep(.toolbar-label), .graph-stage :deep(.toolbar-divider), .graph-stage :deep(.graph-search) { display: none; }
 .graph-stage :deep(.legend-bar) { bottom: 12px; left: 12px; }
@@ -507,14 +536,39 @@ onMounted(async () => {
 .call-list { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; }.call-list button { display: flex; width: 100%; align-items: center; justify-content: space-between; padding: 6px 8px; background: var(--bg-inset); border: 1px solid var(--border-subtle); border-radius: 4px; color: var(--text-secondary); cursor: pointer; }.call-list button code { overflow: hidden; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }.call-list button span { color: var(--text-muted); font-family: var(--font-mono); font-size: 0.55rem; }.more-calls { margin-left: 8px; }
 .selected-inspector { margin: 0 18px 18px; padding: 13px; background: var(--bg-inset); border: 1px solid var(--border-strong); border-radius: 5px; }.inspector-heading { display: flex; align-items: center; justify-content: space-between; color: var(--accent-blue); font-family: var(--font-mono); font-size: 0.57rem; text-transform: uppercase; }.inspector-heading button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; }.selected-inspector h3 { margin-top: 7px; font-size: 0.8rem; }.selected-inspector p { margin-top: 7px; color: var(--text-muted); font-size: 0.64rem; line-height: 1.5; }.open-source { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-top: 11px; padding: 8px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent-emerald) 28%, var(--border-subtle)); border-radius: 4px; color: var(--accent-emerald); cursor: pointer; font-size: 0.62rem; }
 
-@media (max-width: 1450px) {
-  .lab-grid { grid-template-columns: 255px minmax(0, 1fr); }
-  .evidence-panel { grid-column: 1 / -1; }
-  .reasoning-chain { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
-  .reason-step { grid-template-columns: 28px minmax(0, 1fr); padding-bottom: 0; }
-  .reason-step:not(:last-child)::after { display: none; }
-  .selected-inspector { max-width: 600px; }
-  .decision-bar { grid-template-columns: 260px minmax(0, 1fr); }
+.lab-grid { min-height: 0; grid-template-columns: 290px minmax(0, 1fr); align-items: start; }
+.configuration-panel { grid-column: 1; grid-row: 1; }
+.evidence-panel { grid-column: 2; grid-row: 1; }
+.trace-workspace { grid-column: 1 / -1; grid-row: 2; }
+.workspace-heading { flex-wrap: wrap; gap: 12px; }
+.workspace-heading h2 { overflow-wrap: anywhere; }
+.decision-bar { grid-template-columns: 1fr; gap: 10px; }
+.decision-question .eyebrow { display: none; }
+.category-tabs { justify-content: flex-start; padding-bottom: 4px; }
+.category-tabs button { flex: 0 0 auto; min-height: 44px; font-size: .8rem; }
+.learning-proof { padding: 16px 18px; }
+.learning-proof > p { color: var(--text-secondary); font-size: .9rem; line-height: 1.6; }
+.learning-proof button,.learning-proof a { display: flex; flex-direction: column; width: 100%; gap: 5px; min-height: 44px; padding: 12px 0; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--border-subtle); color: var(--accent-emerald); cursor: pointer; }
+.learning-proof span { font-size: .8rem; color: var(--text-secondary); overflow-wrap: anywhere; }
+.learning-proof .selection-caveat { margin-top: 12px; font-size: .8rem; }
+.import-heading > div:first-child { min-width: 0; }
+.import-heading p:last-child,.import-status,.source-contract p { font-size: .8rem; }
+.import-actions button { min-height: 44px; font-size: .8rem; }
+.reason-step h3,.reason-step p,.reason-step code,.reason-step > div > button,.selected-inspector p { font-size: .85rem; overflow-wrap: anywhere; }
+.confidence-label,.call-list button span,.selection-facts dt { font-size: .75rem; }
+.reason-step > div > button,.call-list button { min-height: 44px; }
+.workspace-summary { font-size: .75rem; flex-wrap: wrap; }
+.snippet-header { font-size: .75rem; gap: 12px; flex-wrap: wrap; }
+.namelist-snippet pre { font-size: .85rem; }
+.config-control label { font-size: .85rem; }
+.config-control select { height: 44px; font-size: .85rem; }
+@media (max-width: 800px) {
+  .lab-grid { grid-template-columns: 1fr; }
+  .configuration-panel,.evidence-panel,.trace-workspace { grid-column: 1; grid-row: auto; }
+  .configuration-panel { order: 0; }.evidence-panel { order: 1; }.trace-workspace { order: 2; }
+  .import-heading { flex-direction: column; gap: 12px; }
+  .import-actions { width: 100%; flex-shrink: 1; }
+  .graph-stage { height: 440px; min-height: 440px; }
 }
-@media (max-width: 1050px) { .decision-bar { grid-template-columns: 1fr; gap: 14px; }.category-tabs { justify-content: flex-start; }.lab-grid { grid-template-columns: 1fr; }.configuration-panel, .evidence-panel { grid-column: 1; }.reasoning-chain { grid-template-columns: 1fr; }.page-header { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 1050px) { .page-header { align-items: flex-start; flex-direction: column; } }
 </style>

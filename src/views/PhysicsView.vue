@@ -6,8 +6,9 @@ import { useConfigStore } from '@/stores/configStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useEvidenceStore } from '@/stores/evidenceStore'
 import ExecutionTrace from '@/components/graph/ExecutionTrace.vue'
+import FieldGroups from '@/components/evidence/FieldGroups.vue'
 import { uniqueTargets, type TraceStep } from '@/lib/presentation'
-import { PHYSICS_CATEGORIES, type PhysicsCategory, type GraphEdge, type SourceEvidence } from '@/types/graph'
+import { PHYSICS_CATEGORIES, type PhysicsCategory, type GraphEdge, type GraphNode, type SourceEvidence } from '@/types/graph'
 
 const route = useRoute()
 const router = useRouter()
@@ -28,12 +29,15 @@ watch(selectedValue, async value => {
   target?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
 })
 watch(categoryId, value => {
-  if (value !== route.params.category) router.push(`/physics/${value}`)
-  selectedValue.value = null
+  if (value !== route.params.category) {
+    selectedValue.value = null
+    router.push(`/physics/${value}`)
+  }
 })
 watch(() => route.params.category, value => {
   if (categories.some(c => c.id === value)) categoryId.value = value as PhysicsCategory
 })
+watch(() => route.query.scheme, value => { selectedValue.value = typeof value === 'string' ? value : null })
 watch(() => graph.activeSnapshotId, () => { selectedValue.value = null })
 const category = computed(() => categories.find(c => c.id === categoryId.value)!)
 const schemes = computed(() => graph.getPackagesForNamelist(category.value.namelist))
@@ -73,6 +77,8 @@ const detail = computed(() => {
   const reads = graph.getEdgesTo(`namelist:${selector}`).filter(edge => edge.type === 'READS_CONFIG' && edge.data?.evidence?.length).slice(0, 5)
   return { registry, packageNode, driver, phase, calls, nested, fields, conditional, reads }
 })
+const learningFields = computed(() => (detail.value?.fields || [])
+  .map(name => graph.getNodeById(`state:${name.toLowerCase()}`)).filter((node): node is GraphNode => !!node))
 const steps = computed<TraceStep[]>(() => !detail.value ? [] : [
   { id: 'config', label: 'Configuration', value: `${category.value.namelist} = ${selectedValue.value}`, confidence: 'exact', grade: selectedValue.value === activeValue.value ? 'Current value' : 'Preview value' },
   { id: 'registry', label: 'Registry package', value: detail.value.packageNode?.label || 'Unresolved mapping', confidence: detail.value.registry ? 'exact' : 'unresolved' },
@@ -95,7 +101,7 @@ onMounted(() => graph.loadGraph())
 
 <template>
   <div class="physics-view">
-    <header class="page-heading"><div><p class="eyebrow">Configuration → code → fields</p><h1>Physics Explorer</h1><p>Inspect what a physics choice selects, and where the source evidence stops.</p></div><span class="source-mode">{{ ui.mode === 'learning' ? 'Learning' : 'Researcher' }} view</span></header>
+    <header class="page-heading"><div><h1>Physics Explorer</h1><p>Inspect what a physics choice selects, and where the source evidence stops.</p></div><span class="source-mode">{{ ui.mode === 'learning' ? 'Learning' : 'Researcher' }} view</span></header>
     <div v-if="graph.isLoaded" class="physics-layout">
       <nav class="category-list" aria-label="Physics families"><button v-for="(cat, i) in categories" :key="cat.id" :aria-current="cat.id === categoryId ? 'true' : undefined" :class="{ active: cat.id === categoryId }" @click="categoryId = cat.id"><span>{{ String(i + 1).padStart(2, '0') }}</span>{{ cat.label }}</button></nav>
       <div class="scheme-workspace">
@@ -105,6 +111,11 @@ onMounted(() => graph.loadGraph())
         <section v-if="selected && detail" ref="inspectorEl" tabindex="-1" class="scheme-inspector" aria-label="Scheme detail inspector">
           <header class="inspector-header"><div><p class="eyebrow">Selection inspector</p><h3>{{ selected.description || selected.packageName }}</h3><p><code>{{ selected.packageName }}</code> · option {{ selected.value }}</p></div><button @click="selectedValue = null">← All schemes</button></header>
           <div class="inspector-status"><span :class="{ matches: selected.value === activeValue }">{{ selected.value === activeValue ? 'Selected by current configuration' : 'Preview only · not selected by current configuration' }}</span><button v-if="selected.value !== activeValue" @click="activate(selected.value)">Use this value</button></div>
+          <div v-if="ui.mode === 'learning'" class="learning-summary">
+            <h4>What this choice changes</h4>
+            <p>This {{ category.label.toLowerCase() }} choice maps to <strong>{{ selected.description || selected.packageName }}</strong>. {{ detail.calls.length ? 'WRF has conditional calls in the matching driver branch. The fields below connect those calls to their physical meaning in the Registry.' : 'This index resolves the package, but not its runtime implementation branch.' }}</p>
+            <FieldGroups :fields="learningFields" @select="openField($event.label)" />
+          </div>
           <ExecutionTrace :steps="steps" :selected="selectedStep" @inspect="selectedStep = $event" caption="Configuration relationships, not a timestep timeline. Select a stop to inspect its evidence." />
 
           <div class="why-inspector">
@@ -128,10 +139,10 @@ onMounted(() => graph.loadGraph())
             </div>
           </div>
 
-          <details v-if="detail.calls.length" class="source-disclosure"><summary>All branch call sites <span>{{ detail.calls.length }} locations</span></summary><div class="source-list"><div v-for="(call, i) in detail.calls" :key="`${call.target}-${i}`"><button @click="inspectCall(call)"><code>{{ callLabel(call) }}</code><span>{{ proof(call)?.path }}:{{ proof(call)?.startLine }} ↗</span></button><button v-if="definition(call.target)" class="definition-link" @click="inspect(definition(call.target), `${callLabel(call)} definition`)">Routine definition ↗</button></div></div></details>
+          <details v-if="detail.calls.length" :open="ui.mode === 'researcher'" class="source-disclosure"><summary>All branch call sites <span>{{ detail.calls.length }} locations</span></summary><div class="source-list"><div v-for="(call, i) in detail.calls" :key="`${call.target}-${i}`"><button @click="inspectCall(call)"><code>{{ callLabel(call) }}</code><span>{{ proof(call)?.path }}:{{ proof(call)?.startLine }} ↗</span></button><button v-if="definition(call.target)" class="definition-link" @click="inspect(definition(call.target), `${callLabel(call)} definition`)">Routine definition ↗</button></div></div></details>
           <details v-if="detail.nested.length" class="source-disclosure"><summary>One level inside implementation <span>{{ detail.nested.length }} sampled calls</span></summary><p>Possible direct callees; their guards and preprocessor conditions remain unresolved. This is a bounded sample, not the entire call graph.</p><div class="source-list"><button v-for="(item, i) in detail.nested" :key="i" @click="inspectCall(item.edge)"><code>{{ callLabel(item.parent) }} → {{ callLabel(item.edge) }}</code><span>{{ proof(item.edge)?.path }}:{{ proof(item.edge)?.startLine }} ↗</span></button></div></details>
           <details v-if="!detail.calls.length" class="source-disclosure"><summary>Other indexed references <span>Not a complete path</span></summary><p>Conditional calls and selector reads below do not establish a connected runtime path.</p><div class="source-list"><button v-for="(item, i) in detail.conditional.slice(0, 8)" :key="`condition-${i}`" @click="inspect(item.evidence?.[0], 'Conditional source reference')"><code>{{ item.node?.label || item.edge.source }}</code><span>{{ item.evidence?.[0]?.path }}:{{ item.evidence?.[0]?.startLine }}</span></button><button v-for="(read, i) in detail.reads" :key="`read-${i}`" @click="inspect(proof(read), 'Selector read')"><code>{{ read.source.replace('subroutine:', '') }}</code><span>{{ proof(read)?.path }}:{{ proof(read)?.startLine }}</span></button></div></details>
-          <section v-if="detail.fields.length" class="field-section"><h4>Fields passed at this branch</h4><p>Argument-name matches; read/write direction remains unresolved.</p><div class="field-links"><button v-for="field in detail.fields.slice(0, 12)" :key="field" @click="openField(field)">{{ field.toUpperCase() }} ↗</button></div><details v-if="detail.fields.length > 12"><summary>{{ detail.fields.length - 12 }} more field arguments</summary><div class="field-links"><button v-for="field in detail.fields.slice(12)" :key="field" @click="openField(field)">{{ field.toUpperCase() }} ↗</button></div></details></section>
+          <section v-if="detail.fields.length && ui.mode === 'researcher'" class="field-section"><h4>Fields passed at this branch</h4><p>Argument-name matches; read/write direction remains unresolved.</p><div class="field-links"><button v-for="field in detail.fields.slice(0, 12)" :key="field" @click="openField(field)">{{ field.toUpperCase() }} ↗</button></div><details v-if="detail.fields.length > 12"><summary>{{ detail.fields.length - 12 }} more field arguments</summary><div class="field-links"><button v-for="field in detail.fields.slice(12)" :key="field" @click="openField(field)">{{ field.toUpperCase() }} ↗</button></div></details></section>
         </section>
 
         <div ref="catalogueEl" tabindex="-1" class="catalogue-heading"><h3>Scheme catalogue</h3><span>Click a choice to inspect · click again to close</span></div>
@@ -159,4 +170,10 @@ onMounted(() => graph.loadGraph())
 .catalogue-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 12px; }.catalogue-heading h3 { font-size: .9rem; }.catalogue-heading span { color: var(--text-secondary); font-size: .69rem; }.schemes-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,280px),1fr)); gap: 12px; }.scheme-card { border: 1px solid var(--border-subtle); border-radius: 5px; background: var(--bg-panel); }.scheme-card.active { border-left: 3px solid var(--accent-emerald); }.scheme-card.selected { border-color: var(--accent-emerald); }.scheme-select { display: flex; gap: 12px; width: 100%; align-items: start; padding: 16px; background: transparent; color: var(--text-primary); border: 0; text-align: left; cursor: pointer; }.scheme-select strong { display: block; font-size: .84rem; font-weight: 600; }.scheme-select code { display: block; margin-top: 5px; color: var(--text-secondary); font-size: .67rem; overflow-wrap: anywhere; }.value-badge { min-width: 29px; padding: 3px 5px; text-align: center; border: 1px solid var(--border-strong); border-radius: 3px; font: .71rem var(--font-mono); }.selection-mark { margin-left: auto; color: var(--text-secondary); }.scheme-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 16px; border-top: 1px solid var(--border-subtle); font-size: .67rem; color: var(--text-secondary); }.active .scheme-footer > span { color: var(--accent-emerald); }.scheme-footer button { background: transparent; border: 0; color: var(--accent-emerald); cursor: pointer; font-size: .67rem; }
 @media (max-width: 1100px) { .physics-layout { grid-template-columns: 170px minmax(0,1fr); gap: 16px; }.scheme-inspector { padding: 17px; } }
 @media (max-width: 800px) { .physics-view { height: auto; }.physics-layout { display: block; }.category-list { flex-direction: row; overflow-x: auto; min-height: 50px; margin-bottom: 20px; padding-bottom: 8px; }.category-list button { white-space: nowrap; flex: 0 0 auto; min-height: 40px; }.category-list button span { display: none; }.scheme-workspace { overflow: visible; padding: 0; }.page-heading { flex-direction: column; }.catalogue-heading { align-items: start; flex-direction: column; gap: 4px; }.inspector-header { flex-wrap: wrap; } }
+.learning-summary { margin: 18px 0 24px; }.learning-summary > p { margin-top: 8px; color: var(--text-secondary); font-size: .9rem; line-height: 1.6; max-width: 72ch; }
+.why-inspector p,.source-disclosure p,.field-section p { font-size: .9rem; }
+.source-list span,.definition-link,.source-disclosure summary span,.field-links button { font-size: .8rem; }
+.configuration-strip,.scheme-card.active { border-left-width: 1px; }
+.scheme-footer button,.field-links button,.definition-link { min-height: 44px; }
+.inspector-header .eyebrow { display: none; }
 </style>

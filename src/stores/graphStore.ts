@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, shallowRef } from 'vue'
+import { rankedSearch } from '@/lib/exploration'
 import type { KnowledgeGraph, GraphNode, GraphEdge, AtlasSnapshot, SnapshotManifest } from '@/types/graph'
 
 export const useGraphStore = defineStore('graph', () => {
@@ -316,15 +317,7 @@ export const useGraphStore = defineStore('graph', () => {
    */
   const searchNodes = (query: string, limit = 30): GraphNode[] => {
     if (!graph.value || !query) return []
-    const q = query.toLowerCase()
-    const results: GraphNode[] = []
-    for (const node of graph.value.nodes) {
-      if (results.length >= limit) break
-      if (node.label.toLowerCase().includes(q) || node.id.toLowerCase().includes(q)) {
-        results.push(node)
-      }
-    }
-    return results
+    return rankedSearch(graph.value.nodes, query, limit)
   }
 
   // ── Computed properties ──

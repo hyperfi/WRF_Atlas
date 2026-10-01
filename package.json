@@ -20,7 +20,8 @@
     "vue": "^3.5.0",
     "vue-router": "^4.4.0",
     "pinia": "^2.2.0",
-    "cytoscape": "^3.30.0"
+    "cytoscape": "^3.30.0",
+    "@lucide/vue": "^1.49.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.1.0",

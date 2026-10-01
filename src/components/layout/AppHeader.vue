@@ -1,7 +1,7 @@
 <template>
   <header class="app-header">
     <div class="header-left">
-      <button class="icon-button" type="button" title="Toggle navigation" @click="uiStore.toggleSidebar">
+      <button class="icon-button" type="button" title="Toggle navigation" aria-label="Toggle navigation" :aria-expanded="!uiStore.sidebarCollapsed" @click="uiStore.toggleSidebar">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5h14M3 10h14M3 14.5h14" /></svg>
       </button>
       <div class="location">
@@ -43,8 +43,8 @@
         </select>
       </label>
       <div class="mode-toggle" aria-label="Information density">
-        <button :class="{ active: uiStore.mode === 'learning' }" @click="uiStore.setMode('learning')">Learning</button>
-        <button :class="{ active: uiStore.mode === 'researcher' }" @click="uiStore.setMode('researcher')">Researcher</button>
+        <button :class="{ active: uiStore.mode === 'learning' }" :aria-pressed="uiStore.mode === 'learning'" @click="uiStore.setMode('learning')">Learning</button>
+        <button :class="{ active: uiStore.mode === 'researcher' }" :aria-pressed="uiStore.mode === 'researcher'" @click="uiStore.setMode('researcher')">Researcher</button>
       </div>
       <button class="icon-button" type="button" :title="`Use ${uiStore.theme === 'dark' ? 'light' : 'dark'} theme`" @click="uiStore.toggleTheme">
         <svg v-if="uiStore.theme === 'dark'" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4"/></svg>
@@ -172,4 +172,14 @@ kbd { padding: 2px 6px; background: var(--bg-surface); border: 1px solid var(--b
 }
 @media (max-width: 1250px) { .location-root,.location-separator { display: none; }.search-trigger kbd { display: none; }.local-source-control span { display: none; }.snapshot-picker span { display: none; }.snapshot-picker select { max-width: 140px; } }
 @media (max-width: 800px) { .app-header { display: flex; flex-wrap: wrap; height: auto; min-height: var(--header-height); gap: 8px; padding: 10px; }.header-left { flex: 0 0 auto; }.header-center { flex: 1; padding: 0; }.header-right { flex: 1 0 100%; justify-content: flex-start; flex-wrap: wrap; gap: 6px; }.mode-toggle button { font-size: .62rem; padding: 4px; }.snapshot-picker select { max-width: 95px; }.icon-button { width: 30px; height: 30px; } }
+.icon-button, .search-trigger { min-width: 44px; min-height: 44px; }
+.snapshot-picker select, .local-source-control button { height: 38px; font-size: .75rem; }
+.mode-toggle button { min-height: 38px; font-size: .75rem; }
+@media (max-width: 800px) {
+  .header-right { gap: 6px; }
+  .snapshot-picker select { max-width: 110px; height: 44px; }
+  .local-source-control button { min-width: 44px; height: 44px; justify-content: center; }
+  .mode-toggle button { min-height: 44px; padding-inline: 4px; font-size: .75rem; }
+  .header-right > .icon-button { margin-left: auto; }
+}
 </style>

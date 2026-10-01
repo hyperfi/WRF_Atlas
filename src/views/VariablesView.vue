@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
 import { useEvidenceStore } from '@/stores/evidenceStore'
+import { useUiStore } from '@/stores/uiStore'
 import ExecutionTrace from '@/components/graph/ExecutionTrace.vue'
 import type { TraceStep } from '@/lib/presentation'
 import type { GraphEdge, GraphNode, SourceEvidence } from '@/types/graph'
@@ -11,6 +12,7 @@ const graphStore = useGraphStore()
 const route = useRoute()
 const router = useRouter()
 const evidenceStore = useEvidenceStore()
+const ui = useUiStore()
 
 const searchQuery = ref('')
 const displayCount = ref(50)
@@ -126,9 +128,9 @@ const registryEvidence = computed<SourceEvidence | undefined>(() => {
 })
 
 const journeySteps = computed<TraceStep[]>(() => [
-  { id: 'registry', label: 'Registry', value: selectedVar.value?.label.toUpperCase() || 'Field', confidence: registryEvidence.value ? 'exact' : 'unresolved' },
-  { id: 'interfaces', label: 'Interfaces', value: `${referencingSubroutines.value.length} name matches`, confidence: 'inferred' },
-  { id: 'calls', label: 'CALL arguments', value: `${allCallSites.value.length} handoffs`, confidence: allCallSites.value.length ? 'inferred' : 'unresolved' },
+  { id: 'registry', label: ui.mode === 'learning' ? 'What it means' : 'Registry', value: selectedVar.value?.label.toUpperCase() || 'Field', confidence: registryEvidence.value ? 'exact' : 'unresolved' },
+  { id: 'interfaces', label: ui.mode === 'learning' ? 'Where it is declared' : 'Interfaces', value: ui.mode === 'researcher' ? `${referencingSubroutines.value.length} name matches` : 'Routine arguments', confidence: 'inferred' },
+  { id: 'calls', label: ui.mode === 'learning' ? 'Where it is passed' : 'CALL arguments', value: ui.mode === 'researcher' ? `${allCallSites.value.length} handoffs` : 'Possible handoffs', confidence: allCallSites.value.length ? 'inferred' : 'unresolved' },
 ])
 watch(() => [route.query.field, graphStore.isLoaded, graphStore.activeSnapshotId], () => {
   if (!graphStore.isLoaded) return
@@ -149,7 +151,6 @@ onMounted(() => graphStore.loadGraph())
   <div class="variables-view" :class="{ 'has-selection': selectedVar }">
     <div class="sidebar glass-panel">
       <div class="search-box">
-        <p class="eyebrow">Registry field index</p>
         <h2>Variable Journey</h2>
         <input 
           type="text" 
@@ -196,19 +197,29 @@ onMounted(() => graphStore.loadGraph())
       <div v-if="selectedVar" class="detail-content">
         <div class="detail-header">
           <button class="back-to-variables" @click="closeVariable">← Back to variables</button>
-          <p class="eyebrow">Source-grounded field path</p>
           <h2>{{ selectedVar.label.toUpperCase() }}</h2>
           <div class="tags">
-            <span class="tag" v-if="selectedVar.data.type">Type: {{ selectedVar.data.type }}</span>
-            <span class="tag" v-if="selectedVar.data.dims">Dims: {{ selectedVar.data.dims }}</span>
+            <span class="tag" v-if="ui.mode === 'researcher' && selectedVar.data.type">Type: {{ selectedVar.data.type }}</span>
+            <span class="tag" v-if="ui.mode === 'researcher' && selectedVar.data.dims">Dims: {{ selectedVar.data.dims }}</span>
             <span class="tag" v-if="selectedVar.data.units">Units: {{ selectedVar.data.units }}</span>
           </div>
         </div>
         
         <div class="detail-section">
-          <h3>Description</h3>
+          <h3>{{ ui.mode === 'learning' ? 'Meaning in the Registry' : 'Description' }}</h3>
           <p class="desc-text">{{ selectedVar.data.description || 'No description available.' }}</p>
+          <p v-if="ui.mode === 'learning'">This is the field's source description. A matching argument identifies a possible handoff, but does not prove which routine produces or consumes it.</p>
+          <button v-if="ui.mode === 'learning' && registryEvidence" class="source-info" @click="openEvidence(registryEvidence)">Why this meaning? Inspect Registry evidence</button>
         </div>
+
+        <section v-if="ui.mode === 'learning' && allCallSites.length" class="learning-handoffs">
+          <h3>Explore a possible handoff</h3>
+          <p>These source calls pass a matching field name. Their conditions and read/write direction still need inspection.</p>
+          <button v-for="(edge, index) in allCallSites.slice(0, 3)" :key="index" @click="openEvidence(edge.data.evidence?.[0])">
+            <span>{{ routineLabel(edge.source) }} → {{ routineLabel(edge.target) }}</span>
+            <small>Inspect the conditional CALL · direct source</small>
+          </button>
+        </section>
 
         <ExecutionTrace :steps="journeySteps" :selected="journeyStage" @inspect="journeyStage = $event" caption="Evidence groups, not an ordered lifecycle. Name matches do not prove a connected data-flow path." />
         <details class="journey-contract">
@@ -233,10 +244,10 @@ onMounted(() => graphStore.loadGraph())
             <h3>Routine interfaces <small>{{ referencingSubroutines.length }} name matches</small></h3>
             <p>These routine declarations include an argument with the same name. This is not a call or an execution claim.</p>
             <div v-if="referencingSubroutines.length" class="routine-list">
-              <button v-for="sub in referencingSubroutines.slice(0, 12)" :key="sub.id" @click="openEvidence({ path: sub.data.file, startLine: sub.data.line })">
+              <button v-for="sub in referencingSubroutines.slice(0, ui.mode === 'learning' ? 4 : 12)" :key="sub.id" @click="openEvidence({ path: sub.data.file, startLine: sub.data.line })">
                 <code>{{ sub.label }}</code><span>{{ sub.data.file }}:{{ sub.data.line }} ↗</span>
               </button>
-              <small v-if="referencingSubroutines.length > 12">Showing 12 of {{ referencingSubroutines.length }} matching interfaces</small>
+              <small v-if="referencingSubroutines.length > (ui.mode === 'learning' ? 4 : 12)">Showing {{ ui.mode === 'learning' ? 4 : 12 }} of {{ referencingSubroutines.length }} matching interfaces</small>
             </div>
             <p v-else class="text-muted">No routine declaration has a matching argument in this index.</p>
           </div>
@@ -586,4 +597,10 @@ onMounted(() => graphStore.loadGraph())
 }
 @media (max-width: 1100px) { .sidebar { width: 250px; }.variables-view { gap: 16px; }.detail-content { padding: 19px; }.routine-list button { flex-direction: column; gap: 5px; }.routine-list button span { text-align: left; } }
 @media (max-width: 800px) { .variables-view { height: auto; min-height: 70vh; }.sidebar { width: 100%; min-height: 65vh; }.detail-panel { display: none; }.has-selection .sidebar { display: none; }.has-selection .detail-panel { display: block; width: 100%; }.detail-content { padding: 18px; }.caller-filter { flex-direction: column; align-items: start; }.caller-filter select { min-width: 0; width: 100%; }.source-info { overflow-wrap: anywhere; font-size: .76rem; } }
+.learning-handoffs { padding-bottom: 22px; }.learning-handoffs h3 { font-size: 1rem; }.learning-handoffs p { margin: 8px 0; font-size: .9rem; color: var(--text-secondary); }
+.learning-handoffs button { display: flex; flex-direction: column; width: 100%; gap: 6px; min-height: 44px; padding: 12px 0; background: transparent; border: 0; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.learning-handoffs small { font-size: .8rem; color: var(--accent-emerald); }
+.detail-section p,.journey-step p,.journey-contract p { font-size: .9rem; color: var(--text-secondary); }
+.tags .tag,.source-info,.handoff-meta,.routine-list button span { font-size: .8rem; }
+.featured-fields button,.back-to-variables,.source-info { min-height: 44px; }
 </style>
