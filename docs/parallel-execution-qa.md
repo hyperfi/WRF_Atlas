@@ -43,7 +43,26 @@ The detector found no warnings in the parallel components. Two pre-existing
 colored-border warnings in other execution views remain outside this change.
 
 Captures live in `.impeccable/review/`. Initial captures were clipped by a browser
-zoom/DPR capture mismatch, not demonstrated application overflow; those images
-alone do not certify the complete right-side composition. This verification is
+zoom/DPR capture mismatch, not demonstrated application overflow. Physical-pixel
+clip bounds (CSS dimensions multiplied by the measured 1.1 DPR) correct the
+full-width capture. `desktop-complete.jpg` supersedes the initial cropped frames.
+This verification is
 of the educational interface, not runtime participation, timing, numerical WRF
 results, or performance.
+
+## Documentation check
+
+The documentation finish check compared `ParallelLanes.vue` and
+`ParallelExecution.vue` with `src/styles/index.css`, the incumbent
+`ExecutionMapView.vue`, and the implemented parallel helpers/regressions.
+The documented lane extents, join/request styling, selection retention, source
+pages, compact controls, detail modes, catalog pagination, and list/keyboard
+alternatives match those implementations. Shared theme tokens, font stacks,
+and compact corner treatments remain the existing workbench vocabulary.
+Communicator barriers and collectives return no illustrative neighbors; the
+mesh therefore leaves other patches neutral.
+
+This was a code/documentation comparison, without a new browser session or
+test run. Browser measurements and test/build outcomes above are the recorded
+verification evidence. No root `PRODUCT.md`, `DESIGN.md`, or design sidecar was
+created for this view extension.

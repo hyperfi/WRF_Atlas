@@ -48,6 +48,23 @@ collapses guards/arguments; Researcher mode opens them. Effective disabled
 resource values are shown as one while prior rank/thread preferences are kept
 for modes that support them.
 
+## Presentation contract
+
+This view extends the existing scientific workbench. Its surfaces, borders,
+sans/monospace typography, emerald selection, amber synchronization, and dark
+and light themes use `src/styles/index.css`; it introduces no global visual
+system. Controls and tool surfaces retain the incumbent compact, 3-6px corner
+treatments. Partition settings and the full scope browser open on demand.
+
+Rank lanes contain thread tracks only within matched source extents. Solid
+rank-local tracks show source order; amber team gates remain local to a rank;
+dashed amber links identify inferred request associations. Communicator events
+leave other rank patches neutral because membership is unresolved. Selected
+compact lanes reserve caption space below the event node. The inspector sits
+beside the lanes when space permits and follows them on narrower screens;
+horizontal scrolling is confined to the lane canvas. Source list and keyboard
+navigation preserve access to the same selected evidence.
+
 ## Source intelligence
 
 `indexer/parallel_analysis.py` uses the existing logical-statement normalizer
