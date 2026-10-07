@@ -1,48 +1,49 @@
-# Parallel execution QA
+# Nested parallel lanes verification
 
-Validated locally on 2026-10-06. This records application checks, not a WRF
-compilation, observed MPI trace, performance benchmark, or numerical validation.
+Date: 2026-10-07. Scope: parallel execution view, not WRF runtime validation.
 
-## Automated
+## Automated checks
 
-- `npm test`: Python source/snapshot tests and TypeScript transformation tests.
-- `npm run build`: TypeScript checking and Vite production build.
-- `git diff --check`: no whitespace errors.
-- Independent parallel companions regenerated from official WRF 4.7.1,
-  official WRF 4.8.0, and the existing local QWRF 4.7.1 graph identity.
-- Impeccable detector: no findings in the new parallel component. Two warnings
-  concern pre-existing accent borders in the other execution views; those
-  unrelated styles were preserved.
+- `npm test`: 25 Python tests and 22 frontend tests passed.
+- `npm run build`: TypeScript check and production Vite build passed.
+- New regressions cover source selection identity, empty-filter recovery, stable
+  source pages, conservative thread extents and request associations, and neutral
+  rank patches for unresolved communicator membership.
+- The official 4.8.0 fixture resolves the solver parallel region at lines
+  491-533 and the RSL_LITE `yp_recv` post/wait anchors at 1016/1027.
 
-## Browser
+## Browser checks
 
-Inspected desktop 1280 x 800 and mobile 390 x 844 with the local Vite server.
-One combined inspection pass, one fix batch, and one confirmation pass.
+- Serial: one process/one thread; no thread tracks.
+- dmpar: multiple illustrative ranks; disabled thread selector displays one.
+- smpar: one process with thread tracks.
+- Hybrid: rank lanes containing thread tracks and local team joins.
+- Hiding excluded mechanisms and switching to Serial gives an explicit notice
+  when the selected OpenMP directive is removed; a nearby source stop is selected.
+- Returning to a compatible mode preserves enabled rank preferences.
+- Keyboard navigation updates selected source evidence; the selected node
+  remains within the canvas on mobile. Horizontal scrolling stays inside it.
+- MPI_Wait search reaches results 13-23 of 23 via pagination.
+- The RSL_LITE request association exposes both source anchors and labels the
+  association inferred. The source drawer opens the corresponding line/commit.
+- No console warnings/errors were observed in the development tab.
+- CSS viewports 1440x900 and 390x844 had no document overflow. An additional
+  compact view was checked at 355x767.
+- The reported Local source site caption collision is corrected. The compact
+  Serial lane has 13px measured clearance between node and caption bounds.
 
-- dmpar: four illustrative ranks, one thread per rank, thread control disabled.
-- smpar: one process, four illustrative threads, rank controls disabled.
-- Hybrid: four illustrative ranks with thread teams inside each rank.
-- Serial: one process and one thread, both resource controls disabled.
-- A selected `MPI_Wait` switches to excluded in smpar. Hiding excluded
-  mechanisms gives a truthful empty state in the MPI-only exchange scope.
-- An OpenMP worksharing directive switches to ignored in dmpar, with explicit
-  explanation that the Fortran body remains sequential within a rank.
-- Selecting a catalog event in the same source scope selects its correct stop.
-- Source scopes, mesh dimensions, selected patch, previous/next, play/pause,
-  speed, and excluded-mechanism controls respond.
-- A 1 x 3 patch layout stays within the fixed mesh bounds with no text overflow.
-- The mobile page has no horizontal overflow. The source diagram owns its
-  horizontal scrolling; event cells have no vertical text overflow.
-- `HALO_EM_A.inc` resolves its Registry fields and explicitly inferred
-  RSL_LITE implementation links.
-- The evidence drawer loads pinned C source around `MPI_Irecv` at
-  `external/RSL_LITE/c_code.c:1016` for official 4.8.0. Closing restores focus.
-- `MPI_Wait` at line 1027 shows the request and neighbor guard, without a global
-  barrier claim. The startup barrier at `module_dm.F:217` shows its actual
-  `local_communicator` argument and unresolved communicator membership.
-- Both official snapshots and the local snapshot load their own parallel
-  evidence when selected. Local and official source line locations can differ.
-- Light and dark themes remain legible; no browser warnings/errors were captured.
+## Independent review
 
-Saved proof: `parallel-execution-desktop.jpg` and
-`parallel-execution-mobile.jpg`. The temporary viewport override was reset.
+The finish reviewer confirmed caption separation and the approved lane structure.
+It requested one semantic correction: communicator events must not highlight
+every other illustrative patch as a peer. The corrected partner helper returns
+no neighbors for barriers/collectives, with a focused regression.
+
+The detector found no warnings in the parallel components. Two pre-existing
+colored-border warnings in other execution views remain outside this change.
+
+Captures live in `.impeccable/review/`. Initial captures were clipped by a browser
+zoom/DPR capture mismatch, not demonstrated application overflow; those images
+alone do not certify the complete right-side composition. This verification is
+of the educational interface, not runtime participation, timing, numerical WRF
+results, or performance.

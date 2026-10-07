@@ -86,7 +86,7 @@ import { useGraphStore } from '@/stores/graphStore'
 import { useParallelStore } from '@/stores/parallelStore'
 import { useEvidenceStore } from '@/stores/evidenceStore'
 import { useUiStore } from '@/stores/uiStore'
-import { BUILD_MODES, communicationTopology, eventAvailability, eventMeaning, illustrativeDimensions, modeSettings, rankNeighbors, requestAssociations, retainedSelection, type BuildMode, type ParallelEvent } from '@/lib/parallel'
+import { BUILD_MODES, communicationNeighbors, communicationTopology, eventAvailability, eventMeaning, illustrativeDimensions, modeSettings, requestAssociations, retainedSelection, type BuildMode, type ParallelEvent } from '@/lib/parallel'
 import type { SourceEvidence } from '@/types/graph'
 
 const graph = useGraphStore(), parallel = useParallelStore(), evidence = useEvidenceStore(), ui = useUiStore()
@@ -124,7 +124,7 @@ const exchangeImplementations = computed(() => [...new Map((parallel.index?.gene
 const topology = computed(() => communicationTopology(selectedEvent.value, events.value))
 const collective = computed(() => topology.value === 'communicator')
 const communicationVisible = computed(() => !!selectedEvent.value && !!topology.value && eventAvailability(selectedEvent.value, mode.value) !== 'inactive')
-const neighbors = computed(() => !profile.value.mpi || !communicationVisible.value ? [] : collective.value ? ranks.value.filter(rank => rank !== selectedRank.value) : rankNeighbors(selectedRank.value, dimensions.value.x, dimensions.value.y, topology.value as 'x' | 'y' | 'both'))
+const neighbors = computed(() => communicationNeighbors(selectedEvent.value, scopeEvents.value, mode.value, selectedRank.value, dimensions.value.x, dimensions.value.y))
 const threadScope = computed(() => {
   const event = selectedEvent.value
   if (!event) return ''

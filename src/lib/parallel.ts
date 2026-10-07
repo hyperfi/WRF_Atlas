@@ -92,6 +92,12 @@ export function communicationTopology(event: ParallelEvent | undefined, scopeEve
   return shifts[0]?.arguments?.[1] === '0' ? 'y' as const : shifts[0]?.arguments?.[1] === '1' ? 'x' as const : null
 }
 
+export function communicationNeighbors(event: ParallelEvent | undefined, scopeEvents: ParallelEvent[], mode: BuildMode, rank: number, x: number, y: number) {
+  if (!event || !modeSettings(mode).mpi || eventAvailability(event, mode) === 'inactive') return []
+  const topology = communicationTopology(event, scopeEvents)
+  return !topology || topology === 'communicator' ? [] : rankNeighbors(rank, x, y, topology)
+}
+
 export function eventMeaning(event: ParallelEvent, mode: BuildMode) {
   const availability = eventAvailability(event, mode)
   const settings = modeSettings(mode)

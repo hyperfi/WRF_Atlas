@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { communicationTopology, enclosingThreadRegion, evaluateBuildGuard, eventAvailability, eventMeaning, illustrativeDimensions, matchingParallelIndex, rankNeighbors, requestAssociations, retainedSelection, sourceWindow, type ParallelEvent, type ParallelIndex } from '../src/lib/parallel.ts'
+import { communicationNeighbors, communicationTopology, enclosingThreadRegion, evaluateBuildGuard, eventAvailability, eventMeaning, illustrativeDimensions, matchingParallelIndex, rankNeighbors, requestAssociations, retainedSelection, sourceWindow, type ParallelEvent, type ParallelIndex } from '../src/lib/parallel.ts'
 import { readFileSync } from 'node:fs'
 
 const event = (changes: Partial<ParallelEvent> = {}): ParallelEvent => ({ id: 'test', scopeId: 'test::step', scope: 'step', operation: 'MPI_Wait', kind: 'mpi_wait', evidence: [{ path: 'test.F', startLine: 1 }], guards: [], conditions: [], threadContext: '', ...changes })
@@ -62,6 +62,14 @@ test('parallel evidence cannot silently mix snapshots or graph generations', () 
   assert.equal(matchingParallelIndex(index, { ...metadata, indexed_at: 'older' }), false)
   assert.equal(matchingParallelIndex(index, { ...metadata, source_id: 'local' }), false)
   assert.equal(matchingParallelIndex(index, { ...metadata, dirty: true }), false)
+})
+
+test('unresolved communicator membership never becomes an illustrative peer list', () => {
+  for (const kind of ['mpi_barrier', 'mpi_collective']) assert.deepEqual(communicationNeighbors(event({ kind }), [], 'hybrid', 0, 2, 2), [])
+  const halo = event({ kind: 'exchange', operation: 'HALO_TEST.inc', guards: ['defined(DM_PARALLEL)'] })
+  assert.deepEqual(communicationNeighbors(halo, [], 'dmpar', 0, 2, 2), [1, 2])
+  assert.deepEqual(communicationNeighbors(halo, [], 'serial', 0, 2, 2), [])
+  assert.deepEqual(communicationNeighbors(event(), [], 'hybrid', 0, 2, 2), [])
 })
 
 test('mode filtering preserves source identity, otherwise selects a nearby source stop', () => {
