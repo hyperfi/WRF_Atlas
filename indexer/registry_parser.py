@@ -43,6 +43,7 @@ def parse_registry(root_dir: str,
         'packages': [],
         'states': [],
         'dimspecs': [],
+        'communications': [],
         'packages_by_namelist': {},
     }
     
@@ -104,6 +105,16 @@ def parse_registry(root_dir: str,
                         entry = _parse_dimspec(parts, rel_path, line_num)
                         if entry:
                             result['dimspecs'].append(entry)
+                    elif cmd in ('halo', 'period', 'swap', 'cycle') and len(parts) >= 4:
+                        groups = []
+                        for group in ''.join(parts[3:]).split(';'):
+                            if ':' in group:
+                                pattern, names = group.split(':', 1)
+                                groups.append({'pattern': pattern, 'fields': [name for name in names.split(',') if name]})
+                        result['communications'].append({
+                            'id': parts[1].upper(), 'name': parts[1], 'kind': cmd,
+                            'groups': groups, 'evidence': [{'path': rel_path.replace('\\', '/'), 'startLine': line_num, 'endLine': line_num}],
+                        })
                             
         except Exception as e:
             logger.error(f"Error parsing registry file {filepath}: {e}")

@@ -607,6 +607,9 @@ def build_graph(wrf_root: str, output_path: str, source_config: Optional[Dict[st
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(kg.to_dict(metadata), f)
+
+    from indexer.parallel_analysis import write_parallel_index
+    write_parallel_index(wrf_root, output_path, metadata)
     
     logger.info(f"Graph built: {len(kg.nodes)} nodes, {len(kg.edges)} edges.")
     logger.info(f"Output: {output_path}")

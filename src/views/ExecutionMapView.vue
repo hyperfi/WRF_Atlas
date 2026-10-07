@@ -2,20 +2,21 @@
   <div class="execution-view">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Source-derived execution</p>
-        <h1>How control moves through WRF</h1>
-        <p>Follow indexed call sites from the executable entry into ARW integration, then play the physics sequence visible around one conceptual timestep.</p>
+        <h1>{{ activeView === 'parallel' ? 'Parallel execution in WRF' : 'How control moves through WRF' }}</h1>
+        <p>{{ activeView === 'parallel' ? 'Explore rank-local work, thread regions, and completion points in the selected checkout.' : 'Follow ARW integration or one conceptual timestep through source-backed call sites.' }}</p>
       </div>
-      <div class="source-state"><span><i></i>{{ exactCallCount }} exact source anchors shown</span><small>Ordering is taken from source line positions. Unresolved conditions remain explicit.</small></div>
+      <div v-if="activeView !== 'parallel'" class="source-state"><span><i></i>{{ exactCallCount }} exact source anchors shown</span><small>Ordering is taken from source line positions. Unresolved conditions remain explicit.</small></div>
     </header>
 
     <nav class="view-tabs surface-panel" aria-label="Execution views">
-      <button :class="{ active: activeView === 'lifecycle' }" @click="setView('lifecycle')"><span>01</span><div><strong>Run lifecycle</strong><small>wrf.exe to solve_em</small></div></button>
-      <button :class="{ active: activeView === 'timestep' }" @click="setView('timestep')"><span>02</span><div><strong>One timestep</strong><small>RK and physics call sites</small></div></button>
+      <button :class="{ active: activeView === 'lifecycle' }" :aria-pressed="activeView === 'lifecycle'" @click="setView('lifecycle')"><div><strong>Run lifecycle</strong><small>wrf.exe to solve_em</small></div></button>
+      <button :class="{ active: activeView === 'timestep' }" :aria-pressed="activeView === 'timestep'" @click="setView('timestep')"><div><strong>One timestep</strong><small>RK and physics call sites</small></div></button>
+      <button :class="{ active: activeView === 'parallel' }" :aria-pressed="activeView === 'parallel'" @click="setView('parallel')"><div><strong>Parallel execution</strong><small>MPI ranks and OpenMP teams</small></div></button>
     </nav>
 
     <div v-if="!graphStore.isLoaded" class="loading-panel surface-panel">Building the execution story from indexed calls…</div>
 
+    <ParallelExecution v-else-if="activeView === 'parallel'" />
     <section v-else-if="activeView === 'lifecycle'" class="lifecycle-layout">
       <main class="lifecycle-map surface-panel">
         <div class="map-heading"><div><p class="eyebrow">Forward ARW path</p><h2>Executable entry → integration core</h2></div><span>Click a stop for evidence</span></div>
@@ -89,13 +90,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGraphStore } from '@/stores/graphStore'
 import { useEvidenceStore } from '@/stores/evidenceStore'
 import type { GraphEdge, GraphNode } from '@/types/graph'
 
-type ExecutionView = 'lifecycle' | 'timestep'
+const ParallelExecution = defineAsyncComponent(() => import('@/components/execution/ParallelExecution.vue'))
+type ExecutionView = 'lifecycle' | 'timestep' | 'parallel'
 interface LifecycleStage { id: string; label: string; role: string; description: string; meaning: string; transition: string; confidence: 'exact' | 'inferred'; node?: GraphNode; file: string; callFile?: string; definitionLine?: number; callLine?: number; parentLabel?: string }
 interface TimestepStage { id: string; label: string; phase: string; physicalRole: string; description: string; context: string; scheduling: string; confidence: 'exact' | 'inferred'; parentLabel: string; path?: string; line?: number }
 
@@ -103,7 +105,7 @@ const graphStore = useGraphStore()
 const evidenceStore = useEvidenceStore()
 const route = useRoute()
 const router = useRouter()
-const activeView = ref<ExecutionView>(route.query.view === 'timestep' ? 'timestep' : 'lifecycle')
+const activeView = ref<ExecutionView>(route.query.view === 'parallel' ? 'parallel' : route.query.view === 'timestep' ? 'timestep' : 'lifecycle')
 
 const node = (id: string) => graphStore.getNodeById(id)
 const exactCall = (source: string, target: string): GraphEdge | undefined => graphStore.getEdgesFrom(source)
@@ -183,7 +185,8 @@ const selectTimestepStage = (index: number) => { stopPlayback(); currentStageInd
 watch(playbackDelay, () => { if (playing.value) startPlayback() })
 
 const exactCallCount = computed(() => lifecycleStages.value.filter(stage => stage.confidence === 'exact').length + timestepStages.value.filter(stage => stage.confidence === 'exact').length)
-const setView = (view: ExecutionView) => { activeView.value = view; stopPlayback(); router.replace({ query: view === 'timestep' ? { view: 'timestep' } : {} }) }
+const setView = (view: ExecutionView) => { activeView.value = view; stopPlayback(); router.replace({ query: view === 'lifecycle' ? {} : { view } }) }
+watch(() => route.query.view, view => { activeView.value = view === 'parallel' ? 'parallel' : view === 'timestep' ? 'timestep' : 'lifecycle'; stopPlayback() })
 const openSource = (path?: string, line?: number) => { if (path) evidenceStore.open({ path, startLine: line }, 'Execution source anchor', 'exact', 'An indexed definition or call-site anchor. Scheduling and enclosing conditions may remain unresolved.') }
 
 watch(() => graphStore.isLoaded, loaded => {
@@ -213,4 +216,8 @@ onBeforeUnmount(stopPlayback)
 .meaning-card,.stage-context { border-left-width: 1px; }
 @media(max-width:1050px){.lifecycle-layout,.timestep-layout{grid-template-columns:1fr}.stage-inspector,.current-stage{position:static}.phase-label{display:none}.story-stage{grid-template-columns:34px 190px 1fr 80px}}
 @media(max-width:760px){.page-header{align-items:flex-start;flex-direction:column}.view-tabs{width:100%}.lifecycle-stage>div{grid-template-columns:1fr}.lifecycle-stage div>span{display:none}.story-controls{align-items:flex-start;flex-direction:column;gap:12px}.story-stage{grid-template-columns:30px 1fr}.stage-physics,.stage-proof{grid-column:2}.stage-proof{justify-content:flex-start}.lifecycle-chain{padding-inline:18px}}
+.view-tabs { width: min(760px,100%); grid-template-columns: repeat(3,minmax(0,1fr)); }
+.view-tabs button { display: flex; min-width: 0; padding: 10px; }
+.view-tabs strong { font-size: .85rem; }.view-tabs small { font-size: .75rem; }
+@media(max-width:600px) { .view-tabs small { display: none; }.view-tabs strong { font-size: .8rem; }.view-tabs button { min-height: 54px; } }
 </style>
