@@ -11,14 +11,22 @@
     <div v-if="parallel.loading" class="index-state" role="status">Reading parallel evidence for {{ graph.activeSnapshot?.label }}…</div>
     <div v-else-if="parallel.error" class="index-state" role="alert"><p>{{ parallel.error }}</p><button @click="parallel.load()"><RefreshCw :size="16" /> Retry</button></div>
     <template v-else-if="parallel.index">
-      <div class="parallel-controls">
-        <label>Source scope<select v-model="scopeId" aria-label="Parallel source scope"><option v-for="scope in scopes" :key="scope.id" :value="scope.id">{{ scope.name }} · {{ scope.path }}</option></select></label>
-        <label>X ranks<select v-model.number="meshX" :disabled="!profile.mpi" aria-label="Illustrative X ranks"><option v-for="n in 3" :key="n" :value="n">{{ n }}</option></select></label>
-        <label>Y ranks<select v-model.number="meshY" :disabled="!profile.mpi" aria-label="Illustrative Y ranks"><option v-for="n in 3" :key="n" :value="n">{{ n }}</option></select></label>
-        <label>Threads<select v-model.number="teamSize" :disabled="!profile.omp" aria-label="Illustrative threads per rank"><option v-for="n in 4" :key="n" :value="n">{{ n }}</option></select></label>
-        <label class="checkbox-control"><input v-model="showExcluded" type="checkbox" /> Excluded mechanisms</label>
-      </div>
-
+      <div class="scope-toolbar">
+        <label>Source episode<select v-model="scopeId" aria-label="Parallel source scope"><option v-for="scope in episodeScopes" :key="scope.id" :value="scope.id">{{ scope.name }} · {{ scope.path }}</option></select></label>
+        <details class="scope-browser"><summary><Search :size="16" /> All source scopes</summary><label>Find a scope<input v-model="scopeQuery" type="search" aria-label="Find a source scope" placeholder="Routine or file path" /></label><select v-model="scopeId" aria-label="Matching source scopes"><option v-for="scope in filteredScopes" :key="scope.id" :value="scope.id">{{ scope.name }} · {{ scope.path }}</option></select><p>{{ filteredScopes.length }} matching scopes</p></details>
+      <details class="build-settings"><summary><Settings2 :size="16" /> Partition settings</summary>
+        <div class="settings-layout"><div class="parallel-controls">
+          <label>X ranks<select :value="dimensions.x" @change="meshX = Number(($event.target as HTMLSelectElement).value)" :disabled="!profile.mpi" aria-label="Illustrative X ranks"><option v-for="n in 3" :key="n" :value="n">{{ n }}</option></select></label>
+          <label>Y ranks<select :value="dimensions.y" @change="meshY = Number(($event.target as HTMLSelectElement).value)" :disabled="!profile.mpi" aria-label="Illustrative Y ranks"><option v-for="n in 3" :key="n" :value="n">{{ n }}</option></select></label>
+          <label>Threads<select :value="dimensions.threads" @change="teamSize = Number(($event.target as HTMLSelectElement).value)" :disabled="!profile.omp" aria-label="Illustrative threads per rank"><option v-for="n in 4" :key="n" :value="n">{{ n }}</option></select></label>
+          <label class="checkbox-control"><input v-model="showExcluded" type="checkbox" /> Excluded mechanisms</label>
+        </div><div class="mesh-tool">
+          <h3>{{ profile.mpi ? 'Rank patches' : 'Single-process domain' }}</h3>
+          <div class="mesh" :style="{ gridTemplateColumns: `repeat(${dimensions.x}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${dimensions.y}, minmax(0, 1fr))` }"><button v-for="rank in ranks" :key="rank" :aria-label="`${profile.mpi ? 'Rank' : 'Process'} ${rank}, ${neighbors.includes(rank) ? 'illustrative neighbor' : 'select patch'}`" :aria-pressed="selectedRank === rank" :class="{ selected: selectedRank === rank, neighbor: neighbors.includes(rank) }" @click="selectedRank = rank">{{ profile.mpi ? 'Rank' : 'Process' }} {{ rank }}</button></div>
+          <p>{{ profile.mpi && communicationVisible ? collective ? 'Communicator membership is unresolved.' : `Illustrative adjacent patches: ${neighbors.length ? neighbors.map(n => `rank ${n}`).join(', ') : 'none on this axis'}.` : 'Illustrative partition, not CPU or machine placement.' }}</p>
+        </div></div>
+      </details></div>
+      <p v-if="selectionNotice" class="selection-notice" role="status">{{ selectionNotice }}</p>
       <div class="walkthrough-controls">
         <div class="playback">
           <button title="Previous source event" aria-label="Previous source event" :disabled="cursor === 0 || !events.length" @click="step(-1)"><SkipBack :size="18" /></button>
@@ -29,45 +37,7 @@
         <span>{{ events.length ? cursor + 1 : 0 }} / {{ events.length }} source events · not measured time or a resolved runtime trace</span>
       </div>
 
-      <div class="parallel-diagrams">
-        <section class="mesh-tool" aria-label="Illustrative domain partition">
-          <h3>{{ profile.mpi ? 'Rank patches' : 'Single-process domain' }}</h3>
-          <div class="mesh" :style="{ gridTemplateColumns: `repeat(${dimensions.x}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${dimensions.y}, minmax(0, 1fr))` }">
-            <button v-for="rank in ranks" :key="rank" :aria-label="`${profile.mpi ? 'Rank' : 'Process'} ${rank}, ${neighbors.includes(rank) ? 'communication neighbor' : 'select patch'}`" :aria-pressed="selectedRank === rank" :class="{ selected: selectedRank === rank, neighbor: neighbors.includes(rank) }" @click="selectedRank = rank">
-              <span>{{ profile.mpi ? 'Rank' : 'Process' }} {{ rank }}</span>
-              <div v-if="profile.omp" class="mesh-threads"><i v-for="thread in dimensions.threads" :key="thread">T{{ thread - 1 }}</i></div>
-              <small v-else>One thread</small>
-            </button>
-          </div>
-          <p v-if="profile.mpi && communicationVisible">{{ collective ? 'Illustrative communicator group; actual membership is unresolved.' : `Illustrative adjacent patches: ${neighbors.length ? neighbors.map(n => `rank ${n}`).join(', ') : 'none on this axis'}. Peer numbering is not detected.` }}</p>
-          <p v-else>Partition sizes, rank numbering, and thread assignment are illustrative. A patch is not a CPU or a machine.</p>
-          <div class="mesh-legend"><span><i class="selected-key"></i>Selected</span><span v-if="profile.mpi"><i class="neighbor-key"></i>Communication partner</span></div>
-        </section>
-
-        <section class="lane-tool" aria-label="Rank and thread source walkthrough">
-          <div class="lane-heading"><h3>{{ profile.mpi ? 'MPI ranks' : 'One process' }}{{ profile.omp ? ' / OpenMP teams' : ' / single-thread bodies' }}</h3><span>Equal columns are source stops, not durations.</span></div>
-          <div v-if="events.length" class="lanes-scroll" tabindex="0" aria-label="Scrollable source-event diagram">
-            <div class="lanes" :style="{ gridTemplateColumns: `94px repeat(${windowEvents.length}, 158px)` }">
-              <span class="lane-corner">Source order</span>
-              <button v-for="event in windowEvents" :key="event.id" class="event-heading" :class="eventAvailability(event, mode)" :aria-pressed="selectedEvent?.id === event.id" @click="selectEvent(event)"><strong>{{ event.operation }}</strong><small>{{ event.evidence[0]?.startLine }} · {{ eventAvailability(event, mode) === 'inactive' ? 'excluded' : event.kind.replaceAll('_', ' ') }}</small></button>
-              <template v-for="rank in ranks" :key="rank">
-                <button class="rank-label" :aria-pressed="selectedRank === rank" @click="selectedRank = rank">{{ profile.mpi ? 'Rank' : 'Process' }} {{ rank }}</button>
-                <button v-for="event in windowEvents" :key="`${rank}:${event.id}`" class="event-cell" :class="[event.kind, eventAvailability(event, mode), { current: event.id === selectedEvent?.id, selected: rank === selectedRank }]" :aria-label="`${profile.mpi ? 'Rank' : 'Process'} ${rank}: ${event.operation}, ${cellLabel(event)}`" @click="selectedRank = rank; selectEvent(event)">
-                  <span>{{ cellLabel(event) }}</span>
-                  <div v-if="showTeam(event)" class="thread-slots"><i v-for="thread in dimensions.threads" :key="thread">T{{ thread - 1 }}</i></div>
-                  <small v-else-if="threadConstruct(event) === 'master' && profile.omp">Primary thread only</small>
-                  <small v-else-if="['single', 'critical'].includes(threadConstruct(event)) && profile.omp">Not all threads simultaneously</small>
-                  <small v-else-if="event.kind === 'monitor'">Guarded branch only</small>
-                  <small v-else-if="event.kind === 'mpi_wait' && eventAvailability(event, mode) !== 'inactive'">Request-specific · may wait</small>
-                  <small v-else-if="eventAvailability(event, mode) === 'conditional'">Only if its conditions match</small>
-                </button>
-              </template>
-            </div>
-          </div>
-          <div v-else class="empty-events">No modeled events apply to this scope and mode. Choose another scope or show excluded mechanisms.</div>
-          <div class="diagram-legend"><span>MPI completion ≠ OpenMP join</span><span>Conditional ≠ observed</span><span>Unresolved ≠ globally serial</span></div>
-        </section>
-      </div>
+      <div class="execution-workspace"><ParallelLanes :events="events" :scope-events="scopeEvents" :selected-id="selectedId" :mode="mode" :ranks="ranks" :threads="dimensions.threads" :selected-rank="selectedRank" :scope-name="activeScope?.name || ''" :path="activeScope?.path || ''" :researcher="ui.mode === 'researcher'" @select="selectEvent" @rank="selectedRank = $event" />
 
       <section v-if="selectedEvent" ref="inspector" class="event-inspector" aria-label="Parallel event evidence" tabindex="-1">
         <div class="event-title"><div><h3><code>{{ selectedEvent.operation }}</code></h3><p>{{ eventMeaning(selectedEvent, mode).label }} · {{ availabilityLabel }}</p></div><button class="evidence-button" @click="openEvidence(selectedEvent.evidence[0]!)"><FileCode :size="17" /> Show source</button></div>
@@ -77,7 +47,12 @@
           <div><dt>Who may wait?</dt><dd>{{ waitScope }}</dd></div>
           <div><dt>Selected source</dt><dd>{{ selectedEvent.evidence[0]?.path }}:{{ selectedEvent.evidence[0]?.startLine }} · {{ selectedEvent.scope }}</dd></div>
         </dl>
+        <div v-if="selectedRequest" class="request-association"><h4>Request association · inferred</h4><p><code>{{ selectedRequest.request }}</code> appears in the post and completion call with matching indexed guards. This does not prove runtime request identity, reachability, overlap, or a remote peer.</p><div class="implementation-links"><button @click="selectEvent(selectedRequest.post)"><ArrowLeft :size="16" /> {{ selectedRequest.post.operation }} · line {{ selectedRequest.post.evidence[0]?.startLine }}</button><button @click="selectEvent(selectedRequest.wait)"><Hourglass :size="16" /> {{ selectedRequest.wait.operation }} · line {{ selectedRequest.wait.evidence[0]?.startLine }}</button></div></div>
+        <p v-else-if="selectedEvent.kind === 'mpi_wait' && eventAvailability(selectedEvent, mode) !== 'inactive'" class="request-unresolved">Request association unresolved. No peer or posting dependency is drawn.</p>
+        <details :open="ui.mode === 'researcher'" class="source-details"><summary>Conditions and source arguments</summary>
         <div v-if="selectedEvent.guards.length || selectedEvent.conditions.length" class="conditions"><h4>Conditions retained from source</h4><code v-for="condition in [...selectedEvent.guards, ...selectedEvent.conditions]" :key="condition">{{ condition }}</code></div>
+        <div v-if="selectedEvent.arguments?.length" class="request-arguments"><h4>{{ selectedEvent.kind === 'mpi_wait' ? 'Completion arguments' : 'Source arguments' }}</h4><code>{{ selectedEvent.arguments.join(', ') }}</code></div>
+        <p v-if="!selectedEvent.arguments?.length && !selectedEvent.guards.length && !selectedEvent.conditions.length">No arguments or guards indexed for this stop.</p></details>
         <div v-if="communication" class="exchange-fields">
           <h4>Fields in this Registry exchange</h4>
           <div class="field-links"><button v-for="field in communicationFields" :key="field" @click="openField(field)">{{ field }}</button></div>
@@ -86,14 +61,14 @@
           <div class="implementation-links"><button v-for="implementation in exchangeImplementations" :key="implementation.scopeId" @click="scopeId = implementation.scopeId; cursor = 0"><Network :size="16" /> Inspect {{ implementation.label }}</button></div>
           <details><summary>Generation evidence</summary><button v-for="anchor in parallel.index.generatorEvidence" :key="anchor.startLine" class="source-anchor" @click="openEvidence(anchor)">{{ anchor.description }} · {{ anchor.path }}:{{ anchor.startLine }}</button></details>
         </div>
-        <div v-if="selectedEvent.arguments?.length" class="request-arguments"><h4>{{ selectedEvent.kind === 'mpi_wait' ? 'Completion arguments' : 'Source arguments' }}</h4><code>{{ selectedEvent.arguments.join(', ') }}</code></div>
-        <div class="inspector-links"><button v-if="scopeId !== solverScope?.id && solverScope" @click="scopeId = solverScope.id; cursor = 0"><ArrowLeft :size="16" /> ARW solver</button><RouterLink :to="{ path: '/execution', query: { view: 'timestep' } }">Timestep storyboard <ArrowRight :size="16" /></RouterLink><a v-if="selectedEvent.semantics" :href="selectedEvent.semantics" target="_blank" rel="noopener noreferrer">MPI / OpenMP semantics <ExternalLink :size="15" /></a></div>
-      </section>
+        <div class="inspector-links"><button v-if="scopeId !== solverScope?.id && solverScope" @click="scopeId = solverScope.id"><ArrowLeft :size="16" /> ARW solver</button><RouterLink :to="{ path: '/execution', query: { view: 'timestep' } }">Timestep storyboard <ArrowRight :size="16" /></RouterLink><a v-if="selectedEvent.semantics" :href="selectedEvent.semantics" target="_blank" rel="noopener noreferrer">{{ selectedEvent.kind.startsWith('mpi_') ? selectedEvent.operation : 'OpenMP' }} semantics <ExternalLink :size="15" /></a></div>
+      </section></div>
 
       <section class="parallel-catalog">
         <div class="catalog-heading"><h3>Find a communication or thread boundary</h3><label><Search :size="16" /><input v-model="query" type="search" aria-label="Find parallel evidence" placeholder="MPI_Wait, monitor, PARALLEL DO…" /></label></div>
         <div class="catalog-results"><button v-for="event in catalogResults" :key="event.id" @click="openCatalogEvent(event)"><strong>{{ event.operation }}</strong><span>{{ event.scope }} · {{ event.evidence[0]?.path }}:{{ event.evidence[0]?.startLine }}</span><small>{{ eventAvailability(event, mode) === 'inactive' ? 'excluded in this mode' : eventMeaning(event, mode).label }}</small></button></div>
-        <p>{{ catalogCount }} matching source events{{ catalogCount > 12 ? ' · first 12 shown' : '' }}.</p>
+        <div class="catalog-pagination"><p>{{ catalogCount }} matching source events · {{ catalogCount ? catalogPage * 12 + 1 : 0 }}–{{ Math.min((catalogPage + 1) * 12, catalogCount) }} shown</p><div><button aria-label="Previous evidence results" :disabled="catalogPage === 0" @click="catalogPage--"><ChevronLeft :size="18" /></button><button aria-label="Next evidence results" :disabled="(catalogPage + 1) * 12 >= catalogCount" @click="catalogPage++"><ChevronRight :size="18" /></button></div></div>
+        <p v-if="!catalogCount">No matches. Try a routine name, directive, or file path.</p>
       </section>
 
       <details class="parallel-limits"><summary>Evidence boundaries and indexing diagnostics</summary><ul><li v-for="limit in parallel.index.limitations" :key="limit">{{ limit }}</li></ul><p>Snapshot {{ parallel.index.metadata.commit.slice(0, 12) }} · {{ parallel.index.metadata.dirty ? 'modified checkout' : 'clean checkout' }} · {{ parallel.index.diagnostics.length }} diagnostics. This is not a performance profile.</p><div v-if="ui.mode === 'researcher'"><p v-for="issue in parallel.index.diagnostics" :key="`${issue.path}:${issue.line}:${issue.message}`">{{ issue.path }}:{{ issue.line }} · {{ issue.message }}</p></div></details>
@@ -105,19 +80,21 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, ExternalLink, FileCode, Network, Pause, Play, RefreshCw, Search, SkipBack, SkipForward } from '@lucide/vue'
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ExternalLink, FileCode, Hourglass, Network, Pause, Play, RefreshCw, Search, Settings2, SkipBack, SkipForward } from '@lucide/vue'
+import ParallelLanes from './ParallelLanes.vue'
 import { useGraphStore } from '@/stores/graphStore'
 import { useParallelStore } from '@/stores/parallelStore'
 import { useEvidenceStore } from '@/stores/evidenceStore'
 import { useUiStore } from '@/stores/uiStore'
-import { BUILD_MODES, communicationTopology, eventAvailability, eventMeaning, illustrativeDimensions, modeSettings, rankNeighbors, type BuildMode, type ParallelEvent } from '@/lib/parallel'
+import { BUILD_MODES, communicationTopology, eventAvailability, eventMeaning, illustrativeDimensions, modeSettings, rankNeighbors, requestAssociations, retainedSelection, type BuildMode, type ParallelEvent } from '@/lib/parallel'
 import type { SourceEvidence } from '@/types/graph'
 
 const graph = useGraphStore(), parallel = useParallelStore(), evidence = useEvidenceStore(), ui = useUiStore()
 const route = useRoute(), router = useRouter()
 const mode = ref<BuildMode>(BUILD_MODES.some(item => item.id === route.query.mode) ? route.query.mode as BuildMode : 'hybrid')
 const meshX = ref(2), meshY = ref(2), teamSize = ref(4), selectedRank = ref(0)
-const scopeId = ref(''), cursor = ref(0), showExcluded = ref(true), query = ref(''), playing = ref(false), delay = ref(1200)
+const scopeId = ref(''), selectedId = ref(''), showExcluded = ref(true), query = ref(''), playing = ref(false), delay = ref(1200)
+const scopeQuery = ref(''), catalogPage = ref(0), selectionNotice = ref('')
 const inspector = ref<HTMLElement>()
 let timer: ReturnType<typeof setTimeout> | undefined
 const profile = computed(() => modeSettings(mode.value))
@@ -125,9 +102,18 @@ const dimensions = computed(() => illustrativeDimensions(mode.value, meshX.value
 const ranks = computed(() => Array.from({ length: dimensions.value.x * dimensions.value.y }, (_, index) => index))
 const scopes = computed(() => parallel.index?.scopes || [])
 const solverScope = computed(() => scopes.value.find(scope => scope.name === 'solve_em' && scope.path === 'dyn_em/solve_em.F'))
-const events = computed(() => (parallel.index?.events || []).filter(event => event.scopeId === scopeId.value && (showExcluded.value || eventAvailability(event, mode.value) !== 'inactive')))
-const selectedEvent = computed(() => events.value[cursor.value])
-const windowEvents = computed(() => { const start = Math.max(0, cursor.value - 2); return events.value.slice(start, start + 6) })
+const activeScope = computed(() => scopes.value.find(scope => scope.id === scopeId.value))
+const filteredScopes = computed(() => scopes.value.filter(scope => `${scope.name} ${scope.path}`.toLowerCase().includes(scopeQuery.value.trim().toLowerCase())))
+const episodeScopes = computed(() => {
+  const exchangeIds = exchangeImplementations.value.map(item => item.scopeId)
+  const barrierId = parallel.index?.events.find(event => event.kind === 'mpi_barrier')?.scopeId
+  return scopes.value.filter(scope => [solverScope.value?.id, ...exchangeIds, barrierId, scopeId.value].includes(scope.id))
+})
+const scopeEvents = computed(() => (parallel.index?.events || []).filter(event => event.scopeId === scopeId.value))
+const events = computed(() => scopeEvents.value.filter(event => showExcluded.value || eventAvailability(event, mode.value) !== 'inactive'))
+const cursor = computed({ get: () => Math.max(0, events.value.findIndex(event => event.id === selectedId.value)), set: value => { selectedId.value = events.value[value]?.id || ''; selectionNotice.value = '' } })
+const selectedEvent = computed(() => events.value.find(event => event.id === selectedId.value))
+const selectedRequest = computed(() => requestAssociations(scopeEvents.value, mode.value).find(link => link.post.id === selectedId.value || link.wait.id === selectedId.value))
 const availabilityLabel = computed(() => !selectedEvent.value ? '' : ({ active: 'build-compatible; runtime reachability unproven', conditional: 'conditional participation', inactive: 'excluded mechanism' })[eventAvailability(selectedEvent.value, mode.value)])
 const communication = computed(() => parallel.index?.communications.find(item => item.id === selectedEvent.value?.communicationId))
 const communicationFields = computed(() => [...new Set(communication.value?.groups.flatMap(group => group.fields) || [])])
@@ -158,16 +144,9 @@ const waitScope = computed(() => {
 })
 const catalogMatches = computed(() => (parallel.index?.events || []).filter(event => event.kind !== 'call' && (showExcluded.value || eventAvailability(event, mode.value) !== 'inactive') && (!query.value.trim() || `${event.operation} ${event.directive || ''} ${event.scope} ${event.kind} ${event.evidence[0]?.path}`.toLowerCase().includes(query.value.trim().toLowerCase()))))
 const catalogCount = computed(() => catalogMatches.value.length)
-const catalogResults = computed(() => catalogMatches.value.slice(0, 12))
+const catalogResults = computed(() => catalogMatches.value.slice(catalogPage.value * 12, (catalogPage.value + 1) * 12))
 const announcement = computed(() => `${mode.value}, ${ranks.value.length} processes and ${dimensions.value.threads} threads per process. ${selectedEvent.value?.operation || 'No source event'}, ${selectedEvent.value ? eventMeaning(selectedEvent.value, mode.value).label : ''}.`)
-const threadConstruct = (event: ParallelEvent) => event.construct || event.threadContext
-const showTeam = (event: ParallelEvent) => profile.value.omp && eventAvailability(event, mode.value) !== 'inactive' && !['master', 'single', 'critical'].includes(threadConstruct(event)) && (!!event.threadContext || event.kind.startsWith('omp_'))
-const cellLabel = (event: ParallelEvent) => {
-  if (eventAvailability(event, mode.value) === 'inactive') return event.kind.startsWith('omp_') && !profile.value.omp ? 'Directive ignored' : 'Excluded'
-  if (event.kind === 'call') return showTeam(event) ? 'Thread context retained' : profile.value.mpi ? 'Rank-local call site' : 'Process-local call site'
-  return eventMeaning(event, mode.value).label
-}
-const selectEvent = (event: ParallelEvent) => { stop(); cursor.value = events.value.findIndex(item => item.id === event.id) }
+const selectEvent = (event: ParallelEvent) => { stop(); selectedId.value = event.id; selectionNotice.value = '' }
 const stop = () => { playing.value = false; if (timer) clearTimeout(timer); timer = undefined }
 const step = (direction: number) => { stop(); cursor.value = Math.max(0, Math.min(events.value.length - 1, cursor.value + direction)) }
 const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => { if (cursor.value + 1 >= events.value.length) stop(); else { cursor.value++; schedule() } }, delay.value) }
@@ -175,7 +154,7 @@ const togglePlay = () => { if (playing.value) stop(); else { if (cursor.value + 
 const openEvidence = (anchor: SourceEvidence) => { stop(); evidence.open(anchor, 'Parallel execution evidence', 'exact', 'This anchor proves a source statement or declaration, not runtime participation or elapsed waiting time.', route.fullPath) }
 const openField = (field: string) => { stop(); router.push({ path: '/variables', query: { field } }) }
 const openCatalogEvent = async (event: ParallelEvent) => {
-  stop(); scopeId.value = event.scopeId; query.value = ''
+  stop(); scopeId.value = event.scopeId
   await nextTick()
   cursor.value = Math.max(0, events.value.findIndex(item => item.id === event.id))
   await nextTick()
@@ -187,7 +166,17 @@ const firstBoundary = () => Math.max(0, events.value.findIndex(event => ['omp_re
 watch(() => [graph.activeSnapshotId, graph.isLoaded], () => { stop(); parallel.load() }, { immediate: true })
 watch(() => parallel.index, index => { if (!index) return; scopeId.value = solverScope.value?.id || scopes.value[0]?.id || ''; cursor.value = 0 })
 watch(scopeId, () => { stop(); cursor.value = firstBoundary() })
-watch([mode, showExcluded], () => { stop(); cursor.value = Math.max(0, Math.min(cursor.value, events.value.length - 1)) })
+watch(events, (next, previous) => {
+  stop()
+  if (previous.length && next.length && previous[0]?.scopeId !== next[0]?.scopeId) return
+  const old = previous.find(event => event.id === selectedId.value)
+  const id = retainedSelection(previous, next, selectedId.value)
+  if (id !== selectedId.value) {
+    selectedId.value = id
+    selectionNotice.value = old ? `${old.operation} at line ${old.evidence[0]?.startLine} is hidden by the current mode/filter. ${id ? 'Selected the nearest remaining source stop.' : 'No source stops remain.'}` : ''
+  }
+})
+watch([query, mode, showExcluded, () => parallel.index], () => { catalogPage.value = 0 })
 watch(mode, value => router.replace({ query: { ...route.query, view: 'parallel', mode: value } }))
 watch(() => route.query.mode, value => { if (BUILD_MODES.some(item => item.id === value)) mode.value = value as BuildMode })
 watch(dimensions, () => { if (!ranks.value.includes(selectedRank.value)) selectedRank.value = 0 })
@@ -210,6 +199,13 @@ fieldset { min-width: 0; border: 0; margin: 0; padding: 16px 0; border-block: 1p
 .event-inspector { border-block: 1px solid var(--border-subtle); padding: 22px 0; }.event-title h3 { font-size: 1.1rem; overflow-wrap: anywhere; }.event-title p { margin-top: 4px; color: var(--accent-emerald); font-size: .8rem; }.event-explanation { max-width: 75ch; margin-top: 14px; font-size: .95rem; color: var(--text-secondary); line-height: 1.65; }.evidence-button,.inspector-links button,.implementation-links button { display: inline-flex; gap: 7px; align-items: center; min-height: 44px; padding: 7px 12px; background: var(--bg-inset); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text-primary); font-size: .8rem; cursor: pointer; }.event-facts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin: 18px 0; }.event-facts dt { font-size: .8rem; color: var(--text-muted); }.event-facts dd { margin: 5px 0 0; font-size: .85rem; color: var(--text-secondary); line-height: 1.55; overflow-wrap: anywhere; }.conditions,.exchange-fields,.request-arguments { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }.event-inspector h4 { font-size: .9rem; margin-bottom: 8px; }.conditions > code { display: block; font-size: .8rem; line-height: 1.7; overflow-wrap: anywhere; color: var(--text-secondary); }.request-arguments > code { display: block; max-height: 130px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); font-size: .85rem; line-height: 1.7; }.field-links { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0; }.field-links button { min-height: 36px; background: var(--bg-inset); color: var(--text-secondary); border: 1px solid var(--border-subtle); border-radius: 3px; padding: 5px 9px; cursor: pointer; font: .8rem var(--font-mono); }.exchange-fields p { color: var(--text-muted); max-width: 75ch; font-size: .85rem; line-height: 1.6; margin: 10px 0; }.implementation-links,.inspector-links { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }.inspector-links a { display: flex; align-items: center; gap: 6px; min-height: 44px; font-size: .85rem; color: var(--accent-emerald); }.source-anchor { display: block; min-height: 44px; background: transparent; border: 0; color: var(--text-secondary); text-align: left; font: .8rem var(--font-mono); cursor: pointer; overflow-wrap: anywhere; }details summary { min-height: 44px; cursor: pointer; padding-block: 12px; color: var(--text-secondary); font-size: .85rem; }
 .catalog-heading { align-items: center; }.catalog-heading h3 { font-size: 1rem; }.catalog-heading label { display: flex; align-items: center; gap: 8px; min-width: 250px; max-width: 100%; border: 1px solid var(--border-strong); background: var(--bg-inset); border-radius: 4px; padding: 0 10px; }.catalog-heading input { width: 100%; min-width: 0; min-height: 44px; border: 0; color: var(--text-primary); background: transparent; font-size: .85rem; }.catalog-results { margin-top: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; }.catalog-results button { min-width: 0; display: flex; flex-direction: column; gap: 5px; text-align: left; padding: 12px 10px; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; cursor: pointer; }.catalog-results strong { font: 550 .85rem var(--font-mono); color: var(--text-primary); }.catalog-results span { color: var(--text-secondary); font-size: .75rem; overflow-wrap: anywhere; }.catalog-results small { color: var(--text-muted); font-size: .75rem; }.parallel-catalog > p,.parallel-limits p,.parallel-limits li { font-size: .85rem; color: var(--text-secondary); line-height: 1.7; }.parallel-catalog > p { margin-top: 12px; }.parallel-limits ul { padding-left: 20px; }.index-state { min-height: 200px; padding: 25px 0; color: var(--text-secondary); }.index-state button { padding-inline: 12px; margin-top: 12px; }button:hover:not(:disabled) { filter: brightness(1.08); }button:focus-visible { outline: 2px solid var(--accent-emerald); outline-offset: 2px; }
 .mesh > button { aspect-ratio: auto; min-height: 0; }
+.parallel-execution { gap: 14px; }.mode-control { padding: 8px 0 12px; }.scope-toolbar { display: flex; align-items: flex-end; gap: 16px; }.scope-toolbar > label { flex: 1; min-width: 0; display: grid; gap: 5px; color: var(--text-secondary); font-size: .8rem; }.scope-toolbar select { width: 100%; }.scope-browser { width: min(330px,40%); }.scope-browser summary,.build-settings summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 0; }.scope-browser label { display: grid; gap: 5px; font-size: .8rem; color: var(--text-secondary); }.scope-browser input { min-width: 0; width: 100%; min-height: 44px; margin-bottom: 8px; padding: 6px 10px; background: var(--bg-inset); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text-primary); font: inherit; }.scope-browser p { color: var(--text-secondary); font-size: .75rem; margin-top: 6px; }
+.settings-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; align-items: start; padding: 8px 0 14px; }.parallel-controls { align-items: flex-start; }.parallel-controls > label:first-child { flex: none; min-width: 0; }.settings-layout .mesh-tool { display: grid; grid-template-columns: 120px 1fr; gap: 10px; border: 0; border-radius: 0; padding: 0; background: transparent; }.settings-layout .mesh-tool h3 { grid-column: 1/-1; }.settings-layout .mesh { margin: 0; width: 120px; grid-row: auto; }.settings-layout .mesh-tool p { margin: 0; }.settings-layout .mesh > button { font-size: .65rem; }
+.selection-notice { font-size: .85rem; line-height: 1.6; color: var(--accent-amber); }.request-association,.request-unresolved { margin-top: 16px; color: var(--text-secondary); font-size: .85rem; line-height: 1.6; }.request-association p { max-width: 75ch; }.source-details > p { font-size: .85rem; color: var(--text-secondary); }.catalog-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; }.catalog-pagination p { color: var(--text-secondary); font-size: .8rem; }.catalog-pagination div { display: flex; gap: 6px; }.catalog-pagination button { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--bg-inset); color: var(--text-primary); cursor: pointer; }.catalog-pagination button:disabled { opacity: .4; cursor: default; }
+@media(max-width:800px) { .settings-layout { grid-template-columns: 1fr; }.scope-toolbar { flex-wrap: wrap; }.scope-toolbar > label { flex-basis: 100%; }.scope-browser { width: 100%; } }
+.scope-toolbar { align-items: flex-start; }.scope-toolbar > label { min-width: 180px; }.scope-browser,.build-settings { position: relative; flex: none; width: auto; padding-top: 20px; }.scope-browser summary,.build-settings summary { padding: 6px 0; font-size: .8rem; }.scope-browser[open] { width: min(330px,100%); }.build-settings[open] { width: 100%; flex-basis: 100%; padding-top: 0; }.scope-toolbar:has(.build-settings[open]) { flex-wrap: wrap; }.settings-layout { grid-template-columns: 1fr 320px; }.execution-workspace { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 22px; align-items: start; }.execution-workspace .event-inspector { border: 0; padding: 4px 0; }.execution-workspace .event-title { flex-direction: column; gap: 8px; }.execution-workspace .event-title h3 { font-size: 1rem; }.execution-workspace .event-explanation { font-size: .85rem; }.execution-workspace .event-facts { grid-template-columns: 1fr; gap: 12px; }.execution-workspace .event-facts dd { font-size: .8rem; }.execution-workspace .inspector-links { gap: 5px 10px; }.walkthrough-controls > span { max-width: 48ch; line-height: 1.4; text-align: right; }
+@media(max-width:1280px) { .execution-workspace { grid-template-columns: 1fr; }.execution-workspace .event-title { flex-direction: row; }.execution-workspace .event-facts { grid-template-columns: repeat(3,minmax(0,1fr)); }.execution-workspace .event-inspector { border-block: 1px solid var(--border-subtle); padding-block: 16px; } }
+@media(max-width:800px) { .scope-toolbar { gap: 6px 20px; }.scope-browser,.build-settings { padding-top: 0; }.settings-layout { grid-template-columns: 1fr; }.execution-workspace .event-title { flex-wrap: wrap; }.execution-workspace .event-facts { grid-template-columns: 1fr; }.walkthrough-controls > span { text-align: left; } }
 @media(max-width:1000px) { .parallel-diagrams { grid-template-columns: 1fr; }.mesh-tool { display: grid; grid-template-columns: 190px 1fr; gap: 10px 20px; }.mesh-tool h3 { grid-column: 1/-1; }.mesh { margin-top: 0; grid-row: 2/4; }.mesh-tool p { margin-top: 0; }.event-facts { grid-template-columns: 1fr; gap: 12px; } }
 @media(max-width:600px) { .parallel-heading,.event-title,.catalog-heading { flex-direction: column; gap: 10px; }.mode-options { display: grid; grid-template-columns: 1fr 1fr; }.mode-options button { padding-inline: 7px; font-size: .8rem; }.parallel-controls > label:first-child { flex-basis: 100%; min-width: 0; }.parallel-controls > label:first-child select { width: 100%; }.mesh-tool { display: block; }.mesh { width: min(230px,100%); margin: 15px auto; }.mesh-tool p { margin-top: 12px; }.catalog-heading label { width: 100%; min-width: 0; }.catalog-results { grid-template-columns: 1fr; }.walkthrough-controls > span { line-height: 1.6; }.field-links button { min-height: 44px; } }
 </style>

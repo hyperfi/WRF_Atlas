@@ -20,6 +20,8 @@ htmlcov/
 .venv/
 venv/
 env/
+docs/*.jpg
+docs/*.svg
 
 # Local environment and secrets
 .env
@@ -37,7 +39,7 @@ pnpm-debug.log*
 *.bak
 *~
 .cache/
-
+.impeccable/
 # Editor and operating-system state
 .idea/
 .vscode/

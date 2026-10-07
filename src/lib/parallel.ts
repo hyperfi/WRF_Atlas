@@ -127,3 +127,55 @@ export function matchingParallelIndex(index: ParallelIndex, metadata: { commit: 
   return index.schemaVersion === 1 && index.metadata.commit === metadata.commit &&
     index.metadata.indexed_at === metadata.indexed_at && index.metadata.source_id === metadata.source_id && index.metadata.dirty === metadata.dirty
 }
+
+export function sourceWindow(events: ParallelEvent[], selectedId: string, size = 10) {
+  const index = Math.max(0, events.findIndex(event => event.id === selectedId))
+  const start = Math.floor(index / size) * size
+  return { start, events: events.slice(start, start + size) }
+}
+
+export function retainedSelection(previous: ParallelEvent[], next: ParallelEvent[], selectedId: string) {
+  if (next.some(event => event.id === selectedId)) return selectedId
+  const oldIndex = previous.findIndex(event => event.id === selectedId)
+  const positions = new Map(previous.map((event, index) => [event.id, index]))
+  return next.reduce<ParallelEvent | undefined>((nearest, event) => {
+    const distance = Math.abs((positions.get(event.id) ?? Infinity) - oldIndex)
+    const best = Math.abs((positions.get(nearest?.id || '') ?? Infinity) - oldIndex)
+    return !nearest || distance < best ? event : nearest
+  }, undefined)?.id || ''
+}
+
+export function enclosingThreadRegion(event: ParallelEvent, scopeEvents: ParallelEvent[], mode: BuildMode) {
+  if (!modeSettings(mode).omp || eventAvailability(event, mode) === 'inactive') return undefined
+  const anchor = event.evidence[0]
+  if (!anchor) return undefined
+  return scopeEvents.filter(region => region.kind === 'omp_region' && region.construct?.startsWith('parallel') &&
+    region.scopeId === event.scopeId && region.evidence[0]?.path === anchor.path && region.endEvidence &&
+    region.evidence[0].startLine <= anchor.startLine && region.endEvidence.startLine >= anchor.startLine &&
+    eventAvailability(region, mode) !== 'inactive')
+    .sort((a, b) => b.evidence[0]!.startLine - a.evidence[0]!.startLine)[0]
+}
+
+export interface RequestAssociation { post: ParallelEvent; wait: ParallelEvent; request: string }
+
+// Lexical association only: neither object identity nor control-flow reachability is proven.
+export function requestAssociations(events: ParallelEvent[], mode: BuildMode): RequestAssociation[] {
+  if (!modeSettings(mode).mpi) return []
+  const signature = (event: ParallelEvent) => JSON.stringify([event.guards, event.conditions].map(items => items.map(value => value.replace(/\s+/g, ' ').trim())))
+  const request = (event: ParallelEvent, post: boolean) => {
+    const args = event.arguments || []
+    const isC = event.evidence[0]?.path.endsWith('.c')
+    const value = args[post ? args.length - (isC ? 1 : 2) : 0]?.trim() || ''
+    if (!/^&?[A-Za-z_]\w*$/.test(value)) return ''
+    return isC ? value.replace(/^&/, '') : value.toLowerCase()
+  }
+  return events.filter(event => event.kind === 'mpi_wait' && event.operation.toLowerCase() === 'mpi_wait' && eventAvailability(event, mode) !== 'inactive')
+    .flatMap(wait => {
+      const name = request(wait, false)
+      if (!name || wait.conditions.some(condition => condition.includes('unresolved'))) return []
+      const posts = events.filter(post => post.kind === 'mpi_post' && ['mpi_isend', 'mpi_irecv'].includes(post.operation.toLowerCase()) &&
+        eventAvailability(post, mode) !== 'inactive' && post.scopeId === wait.scopeId && post.evidence[0]?.path === wait.evidence[0]?.path &&
+        post.evidence[0]!.startLine < wait.evidence[0]!.startLine && request(post, true) === name && signature(post) === signature(wait))
+      return posts.length === 1 ? [{ post: posts[0]!, wait, request: name }] : []
+    })
+}

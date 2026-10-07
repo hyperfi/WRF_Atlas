@@ -1,5 +1,5 @@
 <template>
-  <div class="execution-view">
+  <div class="execution-view" :class="{ 'parallel-view': activeView === 'parallel' }">
     <header class="page-header">
       <div>
         <h1>{{ activeView === 'parallel' ? 'Parallel execution in WRF' : 'How control moves through WRF' }}</h1>
@@ -220,4 +220,5 @@ onBeforeUnmount(stopPlayback)
 .view-tabs button { display: flex; min-width: 0; padding: 10px; }
 .view-tabs strong { font-size: .85rem; }.view-tabs small { font-size: .75rem; }
 @media(max-width:600px) { .view-tabs small { display: none; }.view-tabs strong { font-size: .8rem; }.view-tabs button { min-height: 54px; } }
+.parallel-view .page-header h1 { font-size: 1.5rem; }.parallel-view .view-tabs button { min-height: 44px; }.parallel-view .view-tabs small { display: none; }.parallel-view { gap: 14px; }
 </style>

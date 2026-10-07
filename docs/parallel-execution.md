@@ -16,6 +16,38 @@ mechanisms remain visible by default for comparison. Ignoring an OpenMP
 directive does not remove its Fortran body. Thread-count and rank controls are
 illustrative and do not write a namelist.
 
+## Nested execution lanes
+
+The main graphic follows source order in rank lanes, with thread tracks inside
+indexed OpenMP parallel extents. Selecting a rank expands its tracks; the other
+rank lanes retain compact team geometry. A fork is drawn only for a matched
+lexical parallel-region extent. Unmatched constructs do not acquire an invented
+team. MASTER uses the primary-thread track, while SINGLE and CRITICAL retain
+explicit restricted-participation explanations. Team joins stay within a rank.
+MPI communicator barriers have a separate membership-unresolved gate, not an
+edge claiming that every illustrative rank belongs to that communicator.
+
+For simple MPI_Isend/MPI_Irecv and MPI_Wait sites, a dashed request association
+is available when a unique preceding post has the same indexed request symbol,
+scope, file, guards, and conditions. This is **inferred lexical association**,
+not proof of runtime object identity or control flow. Array requests, ambiguous
+posts, different guards, and unresolved alternatives remain unlinked. Selecting
+either endpoint exposes both source anchors. No cross-rank peer is inferred.
+
+Source pages contain ten stable stops rather than shifting on every step.
+Selection is retained by event ID when modes or filters change. If an event is
+hidden, an explicit notice accompanies selection of the nearest remaining
+source stop. The canvas keeps the current node visible on stepping and resizing.
+Arrow keys move between events/ranks; Source list provides the same selection
+without the graphic. Playback advances source focus only, never simulated time.
+
+Source episode choices are discovered from the solver, exchange-generation
+evidence, and a barrier call site. All indexed scopes remain searchable, and
+catalog results are paginated without a twelve-result dead end. Learning mode
+collapses guards/arguments; Researcher mode opens them. Effective disabled
+resource values are shown as one while prior rank/thread preferences are kept
+for modes that support them.
+
 ## Source intelligence
 
 `indexer/parallel_analysis.py` uses the existing logical-statement normalizer
@@ -86,3 +118,6 @@ bounded neighbor topology, snapshot identity, multiline statements, C requests,
 OpenMP continuation/join rules, reachable Registry includes, deterministic
 fixtures, and actual halo/OpenMP/C-wait anchors in both official snapshots.
 `npm run build` checks TypeScript and the static production build.
+Frontend regressions also cover selection retention, stable pages, lexical
+parallel extents, conservative request associations, and the official 4.8.0
+solver region / RSL_LITE request pair.
